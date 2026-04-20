@@ -3,7 +3,12 @@ import { updateAccount } from './store.js'
 import { logInfo, logWarn } from './logger.js'
 import type { AccountCredentials } from './types.js'
 
-const DEFAULT_REFRESH_QUEUE_CONCURRENCY = 20
+// Keep the default well below Cloudflare's per-IP burst threshold for
+// /backend-api/codex/usage. 20 reliably triggers HTML challenges once the
+// window fills; 5 refreshes 20+ accounts in a few seconds without throttling.
+// The env override (OPENCODE_MULTI_AUTH_REFRESH_QUEUE_CONCURRENCY) lets
+// power users raise it on a shared/high-reputation egress.
+const DEFAULT_REFRESH_QUEUE_CONCURRENCY = 5
 const MAX_REFRESH_QUEUE_CONCURRENCY = 20
 const REFRESH_QUEUE_CONCURRENCY_ENV = 'OPENCODE_MULTI_AUTH_REFRESH_QUEUE_CONCURRENCY'
 

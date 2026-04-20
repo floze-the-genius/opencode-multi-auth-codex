@@ -272,7 +272,10 @@ async function runCodexExec(
     let stdout = ''
     const startTime = Date.now()
 
-    const child = spawn('codex', args, {
+    // Allow overriding the codex binary (e.g. point at a newer
+    // `codex` build shipped with the VS Code extension) via env var.
+    const codexBin = process.env.CODEX_CLI_BIN?.trim() || 'codex'
+    const child = spawn(codexBin, args, {
       env: { ...process.env, CODEX_HOME: codexHome },
       stdio: ['ignore', 'pipe', 'pipe']
     })

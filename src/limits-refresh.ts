@@ -30,7 +30,11 @@ export async function refreshRateLimitsForAccount(account: AccountCredentials): 
       limitStatus: 'success',
       limitError: undefined,
       lastLimitProbeAt: now,
-      limitsConfidence: calculateLimitsConfidence(now, account.lastLimitErrorAt, 'success')
+      limitsConfidence: calculateLimitsConfidence(now, account.lastLimitErrorAt, 'success'),
+      // A successful usage-API refresh proves the token is valid. Clear any
+      // stale authInvalid flag so the account re-enters rotation.
+      authInvalid: false,
+      authInvalidatedAt: undefined
     }
     if (usage.planType) {
       updates.planType = usage.planType
@@ -118,7 +122,10 @@ export async function refreshRateLimitsForAccount(account: AccountCredentials): 
     limitStatus: 'success',
     limitError: undefined,
     lastLimitProbeAt: now,
-    limitsConfidence: calculateLimitsConfidence(now, account.lastLimitErrorAt, 'success')
+    limitsConfidence: calculateLimitsConfidence(now, account.lastLimitErrorAt, 'success'),
+    // A successful probe proves the token is valid; clear authInvalid.
+    authInvalid: false,
+    authInvalidatedAt: undefined
   })
 
   logInfo(`Limits refreshed for ${account.alias} using model ${probe.probeModel || 'unknown'}, effort ${probe.probeEffort || 'default'}`)

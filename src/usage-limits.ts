@@ -130,10 +130,20 @@ export function classifyUsageApiFailure(
     .join(' ')
     .toLowerCase()
 
-  if (status === 401 || status === 403) {
+  if (status === 401) {
     return {
       shouldProbeFallback: false,
       authInvalid: true
+    }
+  }
+
+  // 403 on the Codex usage endpoint is most often a Cloudflare per-IP gate
+  // rather than a truly invalid token (the same token still chats fine).
+  // Fall through to the probe path and do not mark auth as invalid.
+  if (status === 403) {
+    return {
+      shouldProbeFallback: true,
+      authInvalid: false
     }
   }
 
@@ -165,30 +175,57 @@ export async function fetchUsageRateLimitsForAccount(
     }
   }
 
-  const url = `${getUsageBaseUrl()}/wham/usage`
+  // OpenAI deprecated /wham/usage for Codex OAuth tokens (returns 403 for all
+  // tokens including active Pro plans). The live Codex usage endpoint is
+  // /backend-api/codex/usage and requires the `originator` header to avoid
+  // Cloudflare challenges.
+  const url = `${getUsageBaseUrl()}/codex/usage`
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
-    'User-Agent': 'codex-cli'
+    'User-Agent': 'codex_cli_rs/0.122.0 (linux)',
+    originator: 'codex_cli_rs'
   }
   if (account.accountId) {
     headers['ChatGPT-Account-Id'] = account.accountId
   }
 
+  // Retry a small number of times on Cloudflare HTML challenges (403 with HTML
+  // body). These appear under per-IP bursts; proper JSON error responses are
+  // not retried.
+  const maxAttempts = 3
   let res: Response
-  try {
-    res = await fetch(url, { method: 'GET', headers })
-  } catch (err) {
+  let rawText = ''
+  let lastErr: unknown
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      res = await fetch(url, { method: 'GET', headers })
+    } catch (err) {
+      lastErr = err
+      if (attempt === maxAttempts - 1) {
+        return {
+          source: 'usage-api',
+          error: `Usage API request failed: ${err}`
+        }
+      }
+      await new Promise((r) => setTimeout(r, 500 + attempt * 1500))
+      continue
+    }
+    try {
+      rawText = await res.text()
+    } catch {
+      rawText = ''
+    }
+    const isCloudflareChallenge =
+      res.status === 403 &&
+      rawText.trimStart().slice(0, 16).toLowerCase().includes('<html')
+    if (!isCloudflareChallenge || attempt === maxAttempts - 1) break
+    await new Promise((r) => setTimeout(r, 1000 + attempt * 2000))
+  }
+  if (!res!) {
     return {
       source: 'usage-api',
-      error: `Usage API request failed: ${err}`
+      error: `Usage API request failed: ${lastErr}`
     }
-  }
-
-  let rawText = ''
-  try {
-    rawText = await res.text()
-  } catch {
-    rawText = ''
   }
 
   if (!res.ok) {
