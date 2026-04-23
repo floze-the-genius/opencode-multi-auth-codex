@@ -1,12 +1,12 @@
 {
   "name": "@guard22/opencode-multi-auth-codex",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Multi-account OAuth rotation for OpenAI Codex with auto model discovery",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "opencode-multi-auth": "./dist/cli.js"
+    "opencode-multi-auth": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
@@ -22,11 +22,14 @@
     "test:soak:48h": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/soak",
     "lint": "tsc --noEmit"
   },
-  "dependencies": {
-    "@openauthjs/openauth": "^0.4.3"
-  },
+  "dependencies": {},
   "peerDependencies": {
     "@opencode-ai/plugin": "^1.0.150"
+  },
+  "peerDependenciesMeta": {
+    "@opencode-ai/plugin": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.0.193",
@@ -47,7 +50,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/guard22/opencode-multi-auth-codex"
+    "url": "git+https://github.com/guard22/opencode-multi-auth-codex.git"
   },
   "keywords": [
     "opencode",

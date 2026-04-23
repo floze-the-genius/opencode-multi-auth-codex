@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GPT-5.5 vs GPT-5.4 OpenCode Benchmark</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f7f9fc;
+      --paper: #ffffff;
+      --ink: #10131a;
+      --muted: #626b7a;
+      --line: #dfe5ee;
+      --soft: #eef2f7;
+      --soft-2: #f8fafc;
+      --blue: #2f5bea;
+      --amber: #d98420;
+      --green: #159365;
+      --red: #d73654;
+      --black: #111827;
+      --shadow: 0 22px 70px rgba(17, 24, 39, 0.1);
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--page);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background:
+        linear-gradient(90deg, rgba(17, 24, 39, 0.035) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(17, 24, 39, 0.035) 1px, transparent 1px),
+        linear-gradient(180deg, #ffffff 0%, #fbfcff 42%, #f3f6fb 100%);
+      background-size: 44px 44px, 44px 44px, auto;
+    }
+
+    button,
+    textarea,
+    table {
+      font: inherit;
+    }
+
+    .page {
+      width: min(1240px, calc(100% - 36px));
+      margin: 0 auto;
+    }
+
+    .hero {
+      min-height: min(840px, calc(100vh - 18px));
+      display: grid;
+      align-content: center;
+      padding: 44px 0 30px;
+    }
+
+    .topline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    .pill {
+      display: inline-flex;
+      min-height: 32px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.92);
+      color: #4b5563;
+      padding: 0 12px;
+      font-size: 12px;
+      font-weight: 850;
+      text-transform: uppercase;
+      white-space: nowrap;
+      box-shadow: 0 8px 22px rgba(17, 24, 39, 0.05);
+    }
+
+    .pill.verified {
+      border-color: rgba(21, 147, 101, 0.28);
+      background: #ecfdf5;
+      color: #08734f;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 0.95fr) minmax(430px, 1.05fr);
+      gap: 28px;
+      align-items: stretch;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 820px;
+      font-size: clamp(48px, 7.6vw, 104px);
+      line-height: 0.88;
+      letter-spacing: 0;
+      text-wrap: balance;
+    }
+
+    .marker {
+      display: inline-block;
+      color: #fff;
+      background: var(--black);
+      padding: 0.03em 0.1em 0.08em;
+      border-radius: 6px;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+    }
+
+    .lead {
+      width: min(720px, 100%);
+      margin: 24px 0 0;
+      color: #384152;
+      font-size: clamp(18px, 2vw, 23px);
+      line-height: 1.44;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 28px;
+    }
+
+    .action {
+      min-height: 46px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+      color: var(--ink);
+      padding: 0 16px;
+      font-weight: 850;
+      cursor: pointer;
+      box-shadow: 0 10px 26px rgba(17, 24, 39, 0.07);
+    }
+
+    .action.primary {
+      border-color: var(--black);
+      background: var(--black);
+      color: #fff;
+    }
+
+    .poster {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .poster-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      padding: 20px;
+      background:
+        linear-gradient(135deg, rgba(215, 54, 84, 0.1), transparent 40%),
+        #fff;
+    }
+
+    .poster-title {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.2;
+      font-weight: 950;
+    }
+
+    .poster-sub {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+      font-weight: 650;
+    }
+
+    .badge {
+      display: inline-flex;
+      min-height: 34px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: var(--black);
+      color: #fff;
+      padding: 0 12px;
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .race {
+      display: grid;
+      gap: 12px;
+      padding: 18px;
+    }
+
+    .race-card {
+      position: relative;
+      display: grid;
+      grid-template-columns: 128px minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      min-height: 78px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 14px;
+      overflow: hidden;
+    }
+
+    .race-card.top {
+      border-color: rgba(215, 54, 84, 0.34);
+      background: linear-gradient(90deg, rgba(215, 54, 84, 0.08), #fff 42%);
+      box-shadow: 0 16px 38px rgba(215, 54, 84, 0.12);
+    }
+
+    .race-name {
+      font-size: 18px;
+      font-weight: 950;
+      line-height: 1.05;
+    }
+
+    .race-route {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+      line-height: 1.25;
+    }
+
+    .track {
+      height: 18px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: var(--soft);
+      box-shadow: inset 0 0 0 1px rgba(17, 24, 39, 0.03);
+    }
+
+    .fill {
+      height: 100%;
+      min-width: 3px;
+      border-radius: inherit;
+      background: var(--accent);
+    }
+
+    .race-value {
+      min-width: 96px;
+      text-align: right;
+      font-size: 20px;
+      font-weight: 950;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .impact {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .impact-card {
+      min-height: 148px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.94);
+      padding: 18px;
+      box-shadow: 0 14px 40px rgba(17, 24, 39, 0.08);
+    }
+
+    .impact-card.hot {
+      border-color: rgba(215, 54, 84, 0.34);
+      background: linear-gradient(180deg, #fff, #fff6f8);
+    }
+
+    .kicker {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+      line-height: 1.2;
+    }
+
+    .big {
+      margin-top: 10px;
+      font-size: clamp(30px, 4vw, 46px);
+      line-height: 0.95;
+      font-weight: 980;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .small {
+      margin-top: 9px;
+      color: #485264;
+      font-size: 13px;
+      line-height: 1.38;
+      font-weight: 650;
+    }
+
+    section {
+      padding: 46px 0;
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 24px;
+      margin-bottom: 18px;
+    }
+
+    h2 {
+      margin: 0;
+      max-width: 560px;
+      font-size: clamp(32px, 4.8vw, 58px);
+      line-height: 0.95;
+      letter-spacing: 0;
+      text-wrap: balance;
+    }
+
+    .section-copy {
+      max-width: 600px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.5;
+      font-weight: 620;
+    }
+
+    .verify-strip {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .verify-card {
+      border: 1px solid rgba(21, 147, 101, 0.24);
+      border-radius: var(--radius);
+      background: #f0fdf7;
+      padding: 16px;
+      color: #0f5f43;
+      box-shadow: 0 10px 26px rgba(21, 147, 101, 0.07);
+    }
+
+    .verify-card strong {
+      display: block;
+      margin-bottom: 5px;
+      color: #083f2d;
+      font-size: 15px;
+    }
+
+    .verify-card code {
+      color: #083f2d;
+      font-weight: 850;
+    }
+
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .chart-panel,
+    .table-wrap,
+    .notes {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: 0 18px 52px rgba(17, 24, 39, 0.08);
+    }
+
+    .chart-panel {
+      padding: 20px;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 19px;
+      line-height: 1.15;
+      font-weight: 950;
+    }
+
+    .panel-sub {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 850;
+      text-align: right;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .chart-bars {
+      display: grid;
+      gap: 14px;
+    }
+
+    .chart-row {
+      display: grid;
+      grid-template-columns: 130px minmax(0, 1fr) 94px;
+      gap: 14px;
+      align-items: center;
+      min-height: 42px;
+    }
+
+    .chart-name {
+      min-width: 0;
+      font-size: 13px;
+      line-height: 1.18;
+      font-weight: 900;
+      overflow-wrap: anywhere;
+    }
+
+    .chart-value {
+      text-align: right;
+      font-size: 14px;
+      font-weight: 950;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .table-wrap {
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 15px 16px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    th {
+      background: #f8fafc;
+      color: #4b5563;
+      font-size: 12px;
+      font-weight: 950;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    tr.highlight-row {
+      background: #fff7f9;
+    }
+
+    td.model {
+      min-width: 170px;
+      font-weight: 950;
+    }
+
+    td.metric {
+      font-weight: 870;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .winner {
+      display: inline-flex;
+      min-height: 22px;
+      align-items: center;
+      border-radius: 999px;
+      background: #111827;
+      color: #fff;
+      padding: 0 9px;
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .notes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      overflow: hidden;
+    }
+
+    .note-block {
+      padding: 22px;
+    }
+
+    .note-block + .note-block {
+      border-left: 1px solid var(--line);
+      background: #fbfcff;
+    }
+
+    .note-block h3 {
+      margin: 0 0 12px;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+
+    .note-list {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      color: #384152;
+      font-size: 14px;
+      line-height: 1.5;
+      font-weight: 620;
+    }
+
+    .note-list li {
+      position: relative;
+      padding-left: 18px;
+    }
+
+    .note-list li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.63em;
+      width: 8px;
+      height: 8px;
+      border-radius: 99px;
+      background: var(--red);
+    }
+
+    .post-box {
+      width: 100%;
+      min-height: 236px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      color: #202634;
+      padding: 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .footer {
+      padding: 34px 0 56px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 620;
+    }
+
+    @media (max-width: 980px) {
+      .hero {
+        min-height: auto;
+        padding-top: 34px;
+      }
+
+      .hero-grid,
+      .chart-grid,
+      .notes,
+      .verify-strip {
+        grid-template-columns: 1fr;
+      }
+
+      .impact {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .note-block + .note-block {
+        border-left: 0;
+        border-top: 1px solid var(--line);
+      }
+    }
+
+    @media (max-width: 660px) {
+      .page {
+        width: min(100% - 20px, 1240px);
+      }
+
+      .hero-grid {
+        gap: 18px;
+      }
+
+      .impact {
+        grid-template-columns: 1fr;
+      }
+
+      .race-card,
+      .chart-row {
+        grid-template-columns: 1fr;
+      }
+
+      .race-value,
+      .chart-value,
+      .panel-sub {
+        text-align: left;
+      }
+
+      .poster-head,
+      .section-head {
+        display: grid;
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      table {
+        min-width: 840px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero" id="top">
+      <div class="topline">
+        <span class="pill">OpenCode 1.4.7</span>
+        <span class="pill">20 round-robin runs</span>
+        <span class="pill verified">Verified backend route</span>
+      </div>
+
+      <div class="hero-grid">
+        <div>
+          <h1><span class="marker">GPT-5.5 Fast</span> takes the OpenCode speed crown.</h1>
+          <p class="lead">Same prompt, same local OpenCode setup, five runs per mode. The difference is not subtle: GPT-5.5 class models pull away on both latency and throughput.</p>
+          <div class="hero-actions">
+            <button class="action primary" type="button" data-scroll="#proof">Route Proof</button>
+            <button class="action" type="button" data-scroll="#charts">Charts</button>
+            <button class="action" type="button" data-scroll="#reddit">Reddit Draft</button>
+          </div>
+        </div>
+
+        <aside class="poster" aria-label="End-to-end throughput ranking">
+          <div class="poster-head">
+            <div>
+              <p class="poster-title">Median end-to-end throughput</p>
+              <p class="poster-sub">Output tokens per second across the full command wall time.</p>
+            </div>
+            <span class="badge">5.5 Fast wins</span>
+          </div>
+          <div class="race" id="rankChart"></div>
+        </aside>
+      </div>
+
+      <div class="impact" id="heroStats"></div>
+    </section>
+
+    <section id="proof" aria-labelledby="proof-title">
+      <div class="section-head">
+        <h2 id="proof-title">Yes, this really hits GPT-5.5.</h2>
+        <p class="section-copy">I re-ran short debug probes before redesigning the page. Direct OpenCode selection still rejects <code>openai/gpt-5.5</code>, so the compatibility path is selected <code>openai/gpt-5.4</code> with backend mapping inside the plugin.</p>
+      </div>
+      <div class="verify-strip">
+        <div class="verify-card">
+          <strong>GPT-5.5 run</strong>
+          Debug log contained <code>[multi-auth] model map: gpt-5.4 -&gt; gpt-5.5</code>. No priority tier was requested.
+        </div>
+        <div class="verify-card">
+          <strong>GPT-5.5 Fast run</strong>
+          Debug log contained <code>[multi-auth] model map: gpt-5.4 -&gt; gpt-5.5</code> and <code>priority service tier requested for gpt-5.5</code>.
+        </div>
+      </div>
+    </section>
+
+    <section id="charts" aria-labelledby="charts-title">
+      <div class="section-head">
+        <h2 id="charts-title">The gap is visible now.</h2>
+        <p class="section-copy">Lower is better for wall time and TTFT. Higher is better for TPS. Fast mode is represented as <code>service_tier=priority</code>; it is not a separate backend model id.</p>
+      </div>
+      <div class="chart-grid" id="chartGrid"></div>
+    </section>
+
+    <section aria-labelledby="table-title">
+      <div class="section-head">
+        <h2 id="table-title">Numbers for the comments.</h2>
+        <p class="section-copy">Each row is average / median over five successful runs. Close-after-finish stayed near 0.1s, so these numbers are model/backend latency, not a stuck CLI after completion.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Mode</th>
+              <th>Backend route</th>
+              <th>Wall time</th>
+              <th>TTFT model</th>
+              <th>Gen TPS</th>
+              <th>E2E TPS</th>
+              <th>Output tokens</th>
+              <th>Close after finish</th>
+            </tr>
+          </thead>
+          <tbody id="metricsTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="reddit" aria-labelledby="reddit-title">
+      <div class="section-head">
+        <h2 id="reddit-title">Reddit copy.</h2>
+        <p class="section-copy">A short version that states the caveat up front and avoids overclaiming from a 5-run sample.</p>
+      </div>
+      <div class="notes">
+        <div class="note-block">
+          <h3>Takeaways</h3>
+          <ul class="note-list">
+            <li>GPT-5.5 Fast won median end-to-end throughput: 11.47 t/s.</li>
+            <li>GPT-5.5 had the best median TTFT: 3.90s from step_start.</li>
+            <li>GPT-5.5 Fast generated roughly 4.2x the median generation TPS of GPT-5.4 Fast.</li>
+            <li>Fast mode is verified as GPT-5.5 plus priority service tier.</li>
+          </ul>
+        </div>
+        <div class="note-block">
+          <h3>Post draft</h3>
+          <textarea class="post-box" id="postDraft" readonly></textarea>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      Measured April 23, 2026. Setup: OpenCode 1.4.7, opencode-multi-auth-codex 1.4.1, JSON event timing, 4 modes, 5 round-robin runs per mode. GPT-5.5 was tested through backend mapping because this OpenCode build still rejects direct <code>openai/gpt-5.5</code> model selection.
+    </footer>
+  </main>
+
+  <script>
+    const data = [
+      {
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+        route: "backend gpt-5.4",
+        accent: "#2f5bea",
+        wallAvg: 33.05,
+        wallMed: 32.62,
+        ttftAvg: 13.01,
+        ttftMed: 15.60,
+        genAvg: 26.24,
+        genMed: 23.62,
+        e2eAvg: 6.80,
+        e2eMed: 6.22,
+        outputAvg: 208,
+        outputMed: 206,
+        closeAvg: 113,
+        closeMed: 115
+      },
+      {
+        id: "gpt-5.4-fast",
+        name: "GPT-5.4 Fast",
+        route: "backend gpt-5.4 + priority",
+        accent: "#d98420",
+        wallAvg: 33.54,
+        wallMed: 26.96,
+        ttftAvg: 10.72,
+        ttftMed: 4.46,
+        genAvg: 22.63,
+        genMed: 22.44,
+        e2eAvg: 7.03,
+        e2eMed: 8.24,
+        outputAvg: 210,
+        outputMed: 204,
+        closeAvg: 115.4,
+        closeMed: 114
+      },
+      {
+        id: "gpt-5.5",
+        name: "GPT-5.5",
+        route: "mapped to backend gpt-5.5",
+        accent: "#159365",
+        wallAvg: 19.02,
+        wallMed: 18.92,
+        ttftAvg: 4.03,
+        ttftMed: 3.90,
+        genAvg: 89.59,
+        genMed: 90.99,
+        e2eAvg: 11.05,
+        e2eMed: 10.68,
+        outputAvg: 208.6,
+        outputMed: 210,
+        closeAvg: 115.8,
+        closeMed: 113
+      },
+      {
+        id: "gpt-5.5-fast",
+        name: "GPT-5.5 Fast",
+        route: "mapped to backend gpt-5.5 + priority",
+        accent: "#d73654",
+        wallAvg: 18.36,
+        wallMed: 18.21,
+        ttftAvg: 4.34,
+        ttftMed: 4.53,
+        genAvg: 144.66,
+        genMed: 99.19,
+        e2eAvg: 11.38,
+        e2eMed: 11.47,
+        outputAvg: 208.4,
+        outputMed: 207,
+        closeAvg: 107.6,
+        closeMed: 106
+      }
+    ];
+
+    const charts = [
+      { title: "Median wall time", sub: "lower is better", key: "wallMed", unit: "s", better: "lower" },
+      { title: "Median TTFT from step_start", sub: "lower is better", key: "ttftMed", unit: "s", better: "lower" },
+      { title: "Median generation TPS", sub: "higher is better", key: "genMed", unit: " t/s", better: "higher" },
+      { title: "Median end-to-end TPS", sub: "higher is better", key: "e2eMed", unit: " t/s", better: "higher" }
+    ];
+
+    const fmt = (value, digits = 2) => Number(value).toFixed(digits);
+    const byId = (id) => data.find((row) => row.id === id);
+
+    function makeRank() {
+      const root = document.getElementById("rankChart");
+      const max = Math.max(...data.map((row) => row.e2eMed));
+      const ranked = [...data].sort((a, b) => b.e2eMed - a.e2eMed);
+      root.innerHTML = ranked.map((row, index) => `
+        <article class="race-card ${index === 0 ? "top" : ""}">
+          <div>
+            <div class="race-name">${row.name}</div>
+            <div class="race-route">${row.route}</div>
+          </div>
+          <div class="track" aria-hidden="true">
+            <div class="fill" style="--accent:${row.accent};width:${(row.e2eMed / max) * 100}%"></div>
+          </div>
+          <div class="race-value">${fmt(row.e2eMed)} t/s</div>
+        </article>
+      `).join("");
+    }
+
+    function makeHeroStats() {
+      const root = document.getElementById("heroStats");
+      const base = byId("gpt-5.4");
+      const baseFast = byId("gpt-5.4-fast");
+      const best = byId("gpt-5.5-fast");
+      const bestTtft = byId("gpt-5.5");
+      const cards = [
+        ["E2E throughput lift", `${fmt(best.e2eMed / base.e2eMed)}x`, `GPT-5.5 Fast vs GPT-5.4 median TPS`, true],
+        ["Generation TPS lift", `${fmt(best.genMed / base.genMed)}x`, `GPT-5.5 Fast vs GPT-5.4 median generation TPS`, true],
+        ["Fast vs old Fast", `${fmt(best.genMed / baseFast.genMed)}x`, `Median generation TPS over GPT-5.4 Fast`, false],
+        ["Best TTFT", `${fmt(bestTtft.ttftMed)}s`, `GPT-5.5 reached first text fastest`, false]
+      ];
+      root.innerHTML = cards.map(([kicker, value, detail, hot]) => `
+        <article class="impact-card ${hot ? "hot" : ""}">
+          <div class="kicker">${kicker}</div>
+          <div class="big">${value}</div>
+          <div class="small">${detail}</div>
+        </article>
+      `).join("");
+    }
+
+    function makeCharts() {
+      const grid = document.getElementById("chartGrid");
+      grid.innerHTML = charts.map((chart) => {
+        const max = Math.max(...data.map((row) => row[chart.key]));
+        const min = Math.min(...data.map((row) => row[chart.key]));
+        const sorted = [...data].sort((a, b) => chart.better === "lower" ? a[chart.key] - b[chart.key] : b[chart.key] - a[chart.key]);
+        return `
+          <article class="chart-panel">
+            <div class="panel-head">
+              <h3 class="panel-title">${chart.title}</h3>
+              <div class="panel-sub">${chart.sub}</div>
+            </div>
+            <div class="chart-bars">
+              ${sorted.map((row) => {
+                const value = row[chart.key];
+                const width = chart.better === "lower"
+                  ? (min / value) * 100
+                  : (value / max) * 100;
+                return `
+                  <div class="chart-row">
+                    <div class="chart-name">${row.name}</div>
+                    <div class="track" aria-hidden="true">
+                      <div class="fill" style="--accent:${row.accent};width:${Math.max(8, width)}%"></div>
+                    </div>
+                    <div class="chart-value">${fmt(value)}${chart.unit}</div>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function makeTable() {
+      const root = document.getElementById("metricsTable");
+      root.innerHTML = data.map((row) => `
+        <tr class="${row.id === "gpt-5.5-fast" ? "highlight-row" : ""}">
+          <td class="model">${row.name}${row.id === "gpt-5.5-fast" ? ' <span class="winner">top e2e</span>' : ""}</td>
+          <td>${row.route}</td>
+          <td class="metric">${fmt(row.wallAvg)}s / ${fmt(row.wallMed)}s</td>
+          <td class="metric">${fmt(row.ttftAvg)}s / ${fmt(row.ttftMed)}s</td>
+          <td class="metric">${fmt(row.genAvg)} / ${fmt(row.genMed)}</td>
+          <td class="metric">${fmt(row.e2eAvg)} / ${fmt(row.e2eMed)}</td>
+          <td class="metric">${fmt(row.outputAvg, 1)} / ${fmt(row.outputMed, 0)}</td>
+          <td class="metric">${fmt(row.closeAvg, 1)}ms / ${fmt(row.closeMed, 0)}ms</td>
+        </tr>
+      `).join("");
+    }
+
+    function makePostDraft() {
+      const draft = [
+        "I benchmarked GPT-5.4, GPT-5.4 Fast, GPT-5.5, and GPT-5.5 Fast in OpenCode.",
+        "",
+        "Setup: OpenCode 1.4.7, opencode-multi-auth-codex 1.4.1, 5 round-robin runs per mode, same prompt, JSON event timing.",
+        "",
+        "Important caveat: direct openai/gpt-5.5 selection is still rejected by this OpenCode build, so GPT-5.5 was tested through backend mapping. I verified the debug logs: regular 5.5 maps gpt-5.4 -> gpt-5.5, and 5.5 Fast maps gpt-5.4 -> gpt-5.5 with service_tier=priority.",
+        "",
+        "Median results:",
+        "- GPT-5.4: 32.62s wall, 15.60s TTFT, 23.62 gen TPS, 6.22 e2e TPS",
+        "- GPT-5.4 Fast: 26.96s wall, 4.46s TTFT, 22.44 gen TPS, 8.24 e2e TPS",
+        "- GPT-5.5: 18.92s wall, 3.90s TTFT, 90.99 gen TPS, 10.68 e2e TPS",
+        "- GPT-5.5 Fast: 18.21s wall, 4.53s TTFT, 99.19 gen TPS, 11.47 e2e TPS",
+        "",
+        "Takeaway: GPT-5.5 is a clear speed upgrade in this sample. GPT-5.5 Fast wins end-to-end throughput; regular GPT-5.5 had the best median TTFT."
+      ].join("\\n");
+      document.getElementById("postDraft").value = draft;
+    }
+
+    function bindActions() {
+      document.querySelectorAll("[data-scroll]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const target = document.querySelector(button.dataset.scroll);
+          if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      });
+    }
+
+    makeRank();
+    makeHeroStats();
+    makeCharts();
+    makeTable();
+    makePostDraft();
+    bindActions();
+  </script>
+</body>
+</html>

@@ -1,5 +1,4 @@
-import { generatePKCE } from '@openauthjs/openauth/pkce';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import * as http from 'http';
 import * as url from 'url';
 import { addAccount, updateAccount, loadStore } from './store.js';
@@ -14,8 +13,13 @@ const SCOPES = ['openid', 'profile', 'email', 'offline_access'];
 function getRedirectUri(port) {
     return `http://localhost:${port}/auth/callback`;
 }
+function generatePKCE() {
+    const verifier = randomBytes(32).toString('base64url');
+    const challenge = createHash('sha256').update(verifier).digest('base64url');
+    return { verifier, challenge };
+}
 export async function createAuthorizationFlow(port) {
-    const pkce = await generatePKCE();
+    const pkce = generatePKCE();
     const state = randomBytes(16).toString('hex');
     const redirectPort = port || DEFAULT_REDIRECT_PORTS[0];
     const redirectUri = getRedirectUri(redirectPort);
