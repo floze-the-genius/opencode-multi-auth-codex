@@ -224,7 +224,8 @@ async function runCodexExec(codexHome, model, effort) {
         let stderr = '';
         let stdout = '';
         const startTime = Date.now();
-        const child = spawn('codex', args, {
+        const codexBin = process.env.CODEX_CLI_BIN?.trim() || 'codex';
+        const child = spawn(codexBin, args, {
             env: { ...process.env, CODEX_HOME: codexHome },
             stdio: ['ignore', 'pipe', 'pipe']
         });

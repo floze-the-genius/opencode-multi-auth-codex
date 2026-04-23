@@ -111,4 +111,33 @@ describe('refreshRateLimitsForAccount', () => {
       error: 'Usage API returned 402: {"detail":{"code":"deactivated_workspace"}}'
     })
   })
+
+  it('clears stale auth invalid state after successful usage refresh', async () => {
+    fetchUsageRateLimitsForAccount.mockResolvedValue({
+      source: 'usage-api',
+      rateLimits: {
+        fiveHour: { remaining: 50, resetAt: Date.now() + 60_000 },
+        weekly: { remaining: 80, resetAt: Date.now() + 120_000 }
+      },
+      planType: 'pro'
+    })
+
+    const result = await refreshRateLimitsForAccount({
+      ...baseAccount,
+      authInvalid: true,
+      authInvalidatedAt: Date.now() - 10_000
+    })
+
+    expect(probeRateLimitsForAccount).not.toHaveBeenCalled()
+    expect(updateAccount).toHaveBeenLastCalledWith(
+      'dead-token',
+      expect.objectContaining({
+        limitStatus: 'success',
+        authInvalid: false,
+        authInvalidatedAt: undefined,
+        planType: 'pro'
+      })
+    )
+    expect(result).toEqual({ alias: 'dead-token', updated: true })
+  })
 })

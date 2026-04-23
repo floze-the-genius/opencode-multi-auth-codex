@@ -65,10 +65,19 @@ export function classifyUsageApiFailure(status, rawText) {
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
-    if (status === 401 || status === 403) {
+    if (status === 401) {
         return {
             shouldProbeFallback: false,
             authInvalid: true
+        };
+    }
+    // 403 from the Codex usage endpoint is usually a Cloudflare gate, not proof
+    // that the OAuth token is invalid. Keep the account eligible and fall back to
+    // the probe path.
+    if (status === 403) {
+        return {
+            shouldProbeFallback: true,
+            authInvalid: false
         };
     }
     if (status === 402 &&
@@ -90,30 +99,51 @@ export async function fetchUsageRateLimitsForAccount(account) {
             error: 'Missing access token'
         };
     }
-    const url = `${getUsageBaseUrl()}/wham/usage`;
+    const url = `${getUsageBaseUrl()}/codex/usage`;
     const headers = {
         Authorization: `Bearer ${token}`,
-        'User-Agent': 'codex-cli'
+        'User-Agent': 'codex_cli_rs/0.122.0 (linux)',
+        originator: 'codex_cli_rs'
     };
     if (account.accountId) {
         headers['ChatGPT-Account-Id'] = account.accountId;
     }
+    const maxAttempts = 3;
     let res;
-    try {
-        res = await fetch(url, { method: 'GET', headers });
+    let rawText = '';
+    let lastErr;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+            res = await fetch(url, { method: 'GET', headers });
+        }
+        catch (err) {
+            lastErr = err;
+            if (attempt === maxAttempts - 1) {
+                return {
+                    source: 'usage-api',
+                    error: `Usage API request failed: ${err}`
+                };
+            }
+            await new Promise((resolve) => setTimeout(resolve, 500 + attempt * 1500));
+            continue;
+        }
+        try {
+            rawText = await res.text();
+        }
+        catch {
+            rawText = '';
+        }
+        const isCloudflareChallenge = res.status === 403 &&
+            rawText.trimStart().slice(0, 16).toLowerCase().includes('<html');
+        if (!isCloudflareChallenge || attempt === maxAttempts - 1)
+            break;
+        await new Promise((resolve) => setTimeout(resolve, 1000 + attempt * 2000));
     }
-    catch (err) {
+    if (!res) {
         return {
             source: 'usage-api',
-            error: `Usage API request failed: ${err}`
+            error: `Usage API request failed: ${lastErr}`
         };
-    }
-    let rawText = '';
-    try {
-        rawText = await res.text();
-    }
-    catch {
-        rawText = '';
     }
     if (!res.ok) {
         const trimmed = rawText.trim();
