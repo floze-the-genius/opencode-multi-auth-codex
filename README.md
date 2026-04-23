@@ -113,6 +113,13 @@ opencode plugin github:guard22/opencode-multi-auth-codex --global
 OpenCode support:
 - GPT-5.5 may appear in Codex before OpenCode ships built-in model metadata
 - the plugin backfills `gpt-5.5` and `gpt-5.5-fast` into runtime config by default
+- OpenCode builds that validate model IDs before plugin config is applied may still reject direct `openai/gpt-5.5` selection
+- in that case, keep selecting `openai/gpt-5.4` and enable latest-model mapping:
+
+```bash
+export OPENCODE_MULTI_AUTH_PREFER_CODEX_LATEST=1
+```
+
 - `gpt-5.4` remains available and can be selected or used as a rollback target
 - disable runtime model injection only if you explicitly want that behavior off:
 
@@ -337,7 +344,7 @@ Environment variables:
 
 ## Fast Mode
 
-For OpenCode, the clean way to mirror Codex Fast mode is:
+For OpenCode builds that already accept `gpt-5.5` model IDs, the clean way to mirror Codex Fast mode is:
 
 - keep the model as `openai/gpt-5.5`
 - use a model variant such as `fast`
@@ -376,6 +383,8 @@ Recommended OpenCode config:
   }
 }
 ```
+
+For OpenCode builds that still reject `openai/gpt-5.5`, keep selecting `openai/gpt-5.4`, keep your existing Fast variant, and set `OPENCODE_MULTI_AUTH_PREFER_CODEX_LATEST=1`. The plugin will send `gpt-5.5` to the Codex backend while preserving `service_tier=priority`.
 
 See [docs/gpt-5.4-fast-benchmark.md](./docs/gpt-5.4-fast-benchmark.md) for a continued-session benchmark summary.
 
