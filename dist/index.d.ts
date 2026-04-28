@@ -1,4 +1,5 @@
 import type { Plugin } from '@opencode-ai/plugin';
+export declare function isCyberPolicyError(payload: any, fallbackText?: string): boolean;
 /**
  * Multi-account OAuth plugin for OpenCode
  *
