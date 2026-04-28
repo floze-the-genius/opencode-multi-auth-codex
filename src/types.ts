@@ -151,6 +151,7 @@ export interface ProviderModel {
   name: string
   limit: {
     context: number
+    input?: number
     output: number
   }
   modalities: {

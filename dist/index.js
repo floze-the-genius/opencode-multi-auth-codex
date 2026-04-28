@@ -153,6 +153,19 @@ function extractErrorMessage(payload, fallbackText = '') {
         : '';
     return detailMessage || errorMessage || topLevelMessage || fallbackText;
 }
+function extractErrorCode(payload) {
+    if (!payload || typeof payload !== 'object')
+        return '';
+    return ((typeof payload?.detail?.code === 'string' && payload.detail.code) ||
+        (typeof payload?.error?.code === 'string' && payload.error.code) ||
+        (typeof payload?.code === 'string' && payload.code) ||
+        '');
+}
+export function isCyberPolicyError(payload, fallbackText = '') {
+    const code = extractErrorCode(payload).toLowerCase();
+    const text = `${extractErrorMessage(payload, fallbackText)} ${fallbackText}`.toLowerCase();
+    return code === 'cyber_policy' || text.includes('cyber_policy');
+}
 function resolveRateLimitedUntil(rateLimits, headers, errorText, fallbackCooldownMs, now = Date.now()) {
     const retryAfterUntil = parseRetryAfterHeader(headers.get('retry-after'), now) || 0;
     const windowResetUntil = getBlockingRateLimitResetAt(rateLimits, now, {
@@ -649,21 +662,41 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                                 headers.delete(OPENAI_HEADERS.SESSION_ID);
                             }
                             headers.set('accept', 'text/event-stream');
-                            const res = await fetch(url, {
-                                method: init?.method || 'POST',
-                                headers,
-                                body: JSON.stringify(payload)
-                            });
-                            const limitUpdate = extractRateLimitUpdate(res.headers);
-                            const mergedRateLimits = limitUpdate
-                                ? mergeRateLimits(account.rateLimits, limitUpdate)
-                                : account.rateLimits;
-                            if (limitUpdate) {
-                                const blockingResetAt = getBlockingRateLimitResetAt(mergedRateLimits);
-                                updateAccount(account.alias, {
-                                    rateLimits: mergedRateLimits,
-                                    rateLimitedUntil: blockingResetAt
+                            const sendPayload = async (requestPayload) => {
+                                return fetch(url, {
+                                    method: init?.method || 'POST',
+                                    headers,
+                                    body: JSON.stringify(requestPayload)
                                 });
+                            };
+                            const applyLimitUpdate = (response) => {
+                                const limitUpdate = extractRateLimitUpdate(response.headers);
+                                const mergedRateLimits = limitUpdate
+                                    ? mergeRateLimits(account.rateLimits, limitUpdate)
+                                    : account.rateLimits;
+                                if (limitUpdate) {
+                                    const blockingResetAt = getBlockingRateLimitResetAt(mergedRateLimits);
+                                    updateAccount(account.alias, {
+                                        rateLimits: mergedRateLimits,
+                                        rateLimitedUntil: blockingResetAt
+                                    });
+                                }
+                                return mergedRateLimits;
+                            };
+                            let res = await sendPayload(payload);
+                            let mergedRateLimits = applyLimitUpdate(res);
+                            if (res.status === 400 && payload.service_tier === 'priority') {
+                                const errorData = await res.clone().json().catch(() => ({}));
+                                const errorText = await res.clone().text().catch(() => '');
+                                if (isCyberPolicyError(errorData, errorText)) {
+                                    if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
+                                        console.log('[multi-auth] cyber_policy on priority tier; retrying once without service_tier');
+                                    }
+                                    const standardTierPayload = { ...payload };
+                                    delete standardTierPayload.service_tier;
+                                    res = await sendPayload(standardTierPayload);
+                                    mergedRateLimits = applyLimitUpdate(res);
+                                }
                             }
                             if (res.status === 401 || res.status === 403) {
                                 const errorData = await res.clone().json().catch(() => ({}));
