@@ -123,7 +123,7 @@ export interface AccountStore {
   forcedUntil?: number | null
   previousRotationStrategy?: string | null
   forcedBy?: string | null
-  rotationStrategy?: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin'
+  rotationStrategy?: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin' | 'use-up'
   // Phase F: Settings
   settings?: RotationSettings
 }
@@ -138,7 +138,7 @@ export interface OpenAIModel {
 
 // Plugin config
 export interface PluginConfig {
-  rotationStrategy: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin'
+  rotationStrategy: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin' | 'use-up'
   autoRefreshTokens: boolean
   rateLimitCooldownMs: number // How long to skip rate-limited accounts
   modelUnsupportedCooldownMs: number // How long to skip accounts that don't support the requested model
@@ -181,7 +181,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
 export interface RotationSettings {
   // Rotation strategy
   rotationStrategy: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin'
-
+    | 'use-up'
   // Rate limit thresholds (0-100)
   criticalThreshold: number // Account skipped below this (default: 10)
   lowThreshold: number      // Warning threshold (default: 30)
@@ -196,6 +196,9 @@ export interface RotationSettings {
   //   'rotate' – pick the next healthy account (session continues, thinking context resets)
   //   'fail'   – return an error so the caller can decide (safest for context preservation)
   sessionStickyFallback: 'rotate' | 'fail'  // default: 'rotate'
+
+  // Drain order for use-up strategy (ordered list of aliases)
+  useUpOrder?: string[]
 
   // Phase G: Feature flags
   featureFlags?: FeatureFlags

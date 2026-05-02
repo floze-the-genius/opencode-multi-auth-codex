@@ -72,7 +72,7 @@ export interface AccountStore {
     forcedUntil?: number | null;
     previousRotationStrategy?: string | null;
     forcedBy?: string | null;
-    rotationStrategy?: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin';
+    rotationStrategy?: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin' | 'use-up';
     settings?: RotationSettings;
 }
 export interface OpenAIModel {
@@ -82,7 +82,7 @@ export interface OpenAIModel {
     owned_by: string;
 }
 export interface PluginConfig {
-    rotationStrategy: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin';
+    rotationStrategy: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin' | 'use-up';
     autoRefreshTokens: boolean;
     rateLimitCooldownMs: number;
     modelUnsupportedCooldownMs: number;
@@ -111,13 +111,14 @@ export interface ProviderModel {
 }
 export declare const DEFAULT_CONFIG: PluginConfig;
 export interface RotationSettings {
-    rotationStrategy: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin';
+    rotationStrategy: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin' | 'use-up';
     criticalThreshold: number;
     lowThreshold: number;
     accountWeights: Record<string, number>;
     stickySessionRouting: boolean;
     sessionIdleTimeoutMs: number;
     sessionStickyFallback: 'rotate' | 'fail';
+    useUpOrder?: string[];
     featureFlags?: FeatureFlags;
     updatedAt?: number;
     updatedBy?: string;
