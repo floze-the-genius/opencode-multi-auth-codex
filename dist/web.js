@@ -780,6 +780,63 @@ const HTML = `<!doctype html>
         font-family: inherit;
         font-size: 13px;
       }
+      #useUpOrderSection {
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+      }
+      #useUpOrderSection .use-up-header {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+      .use-up-list {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 10px 0;
+      }
+      .use-up-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        margin-bottom: 4px;
+        background: var(--panel-2);
+      }
+      .use-up-position {
+        font-size: 11px;
+        color: var(--muted);
+        width: 18px;
+        text-align: right;
+        flex-shrink: 0;
+      }
+      .use-up-alias {
+        flex: 1;
+        font-family: monospace;
+        font-size: 13px;
+      }
+      .use-up-move {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        cursor: pointer;
+        padding: 2px 7px;
+        font-size: 12px;
+        color: var(--text);
+        line-height: 1.4;
+        width: auto;
+      }
+      .use-up-move:disabled {
+        opacity: 0.25;
+        cursor: default;
+      }
+      .use-up-save {
+        font-size: 12px;
+        padding: 5px 14px;
+        width: auto;
+      }
       @media (max-width: 720px) {
         header { padding: 26px 18px 10px; }
         .header-bar { flex-direction: column; align-items: stretch; }
@@ -870,6 +927,7 @@ const HTML = `<!doctype html>
                 <option value="least-used" title="Prefer the enabled account with the lowest usage count.">least-used</option>
                 <option value="random" title="Randomly pick from healthy accounts each request.">random</option>
                 <option value="weighted-round-robin" title="Split requests by your account weights (example: 0.70/0.20/0.10 sends about 70%/20%/10%). Limited or disabled accounts are skipped automatically.">weighted-round-robin</option>
+                <option value="use-up" title="Drain each account fully before moving to the next. Configure the drain order below.">use-up</option>
               </select>
               <span id="rotationStrategyHelpIcon" class="strategy-help" title="">?</span>
             </div>
@@ -877,6 +935,12 @@ const HTML = `<!doctype html>
         </div>
         <div id="forceStatus" class="notice"></div>
         <div id="rotationStrategyStatus" class="notice"></div>
+        <div id="useUpOrderSection" style="display:none;">
+          <div class="use-up-header">Drain order — accounts are exhausted top-to-bottom</div>
+          <ul class="use-up-list" id="useUpOrderList"></ul>
+          <button class="secondary use-up-save" id="saveUseUpOrderBtn">Save order</button>
+          <span class="notice" id="useUpOrderStatus" style="margin-left:10px;"></span>
+        </div>
       </section>
       
       <!-- Phase G: Antigravity section - conditionally rendered based on feature flag -->
@@ -1003,6 +1067,10 @@ const HTML = `<!doctype html>
       const rotationStrategySelect = document.getElementById('rotationStrategySelect')
       const rotationStrategyStatus = document.getElementById('rotationStrategyStatus')
       const rotationStrategyHelpIcon = document.getElementById('rotationStrategyHelpIcon')
+      const useUpOrderSection = document.getElementById('useUpOrderSection')
+      const useUpOrderList = document.getElementById('useUpOrderList')
+      const useUpOrderStatus = document.getElementById('useUpOrderStatus')
+      const saveUseUpOrderBtn = document.getElementById('saveUseUpOrderBtn')
 
       let latestState = null
       let pollTimer = null
@@ -1013,7 +1081,8 @@ const HTML = `<!doctype html>
         'round-robin': 'Cycle through enabled accounts in order.',
         'least-used': 'Prefer the enabled account with the lowest usage count.',
         'random': 'Randomly pick from healthy accounts each request.',
-        'weighted-round-robin': 'Split requests by your account weights (example: 0.70/0.20/0.10 sends about 70%/20%/10%). Limited or disabled accounts are skipped automatically.'
+        'weighted-round-robin': 'Split requests by your account weights (example: 0.70/0.20/0.10 sends about 70%/20%/10%). Limited or disabled accounts are skipped automatically.',
+        'use-up': 'Drain each account fully before moving to the next. Accounts are used in the order configured below until rate-limited, then the next account takes over.'
       }
       const forceModeHelpText = 'Force mode pins all requests to one selected account for up to 24 hours. While force mode is on, rotation strategy is paused.'
       const forceAliasHelpText = 'Choose the account that force mode should pin.'
@@ -1037,6 +1106,66 @@ const HTML = `<!doctype html>
 
       function describeRotationStrategy(strategy) {
         return rotationStrategyHelp[strategy] || 'Rotation strategy controls how the next account is selected.'
+      }
+
+      // --- Use-up order panel ---
+
+      let useUpCurrentOrder = []
+
+      function renderUseUpOrderPanel(strategy, accounts, savedOrder) {
+        if (!useUpOrderSection) return
+        if (strategy !== 'use-up') {
+          useUpOrderSection.style.display = 'none'
+          return
+        }
+        useUpOrderSection.style.display = 'block'
+
+        // Build ordered list: saved aliases first (filtered to existing), then any remaining
+        const allAliases = (accounts || []).map(a => a.alias)
+        const ordered = [
+          ...savedOrder.filter(a => allAliases.includes(a)),
+          ...allAliases.filter(a => !savedOrder.includes(a))
+        ]
+        useUpCurrentOrder = [...ordered]
+
+        if (!useUpOrderList) return
+        useUpOrderList.innerHTML = ordered.map(function(alias, i) {
+          return '<li class="use-up-row" data-alias="' + escapeHtml(alias) + '">' +
+            '<span class="use-up-position">' + (i + 1) + '.</span>' +
+            '<span class="use-up-alias">' + escapeHtml(alias) + '</span>' +
+            '<button class="use-up-move" data-dir="up" data-index="' + i + '"' + (i === 0 ? ' disabled' : '') + ' title="Move up">↑</button>' +
+            '<button class="use-up-move" data-dir="down" data-index="' + i + '"' + (i === ordered.length - 1 ? ' disabled' : '') + ' title="Move down">↓</button>' +
+            '</li>'
+        }).join('')
+
+        useUpOrderList.querySelectorAll('.use-up-move').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const dir = btn.getAttribute('data-dir')
+            const idx = parseInt(btn.getAttribute('data-index'), 10)
+            const swapIdx = dir === 'up' ? idx - 1 : idx + 1
+            if (swapIdx < 0 || swapIdx >= useUpCurrentOrder.length) return
+            ;[useUpCurrentOrder[idx], useUpCurrentOrder[swapIdx]] = [useUpCurrentOrder[swapIdx], useUpCurrentOrder[idx]]
+            renderUseUpOrderPanel(strategy, accounts, useUpCurrentOrder)
+          })
+        })
+        if (useUpOrderStatus) useUpOrderStatus.textContent = ''
+      }
+
+      async function saveUseUpOrder() {
+        if (!saveUseUpOrderBtn || !useUpOrderStatus) return
+        saveUseUpOrderBtn.disabled = true
+        try {
+          await api('/api/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ useUpOrder: useUpCurrentOrder, actor: 'dashboard' })
+          })
+          if (useUpOrderStatus) useUpOrderStatus.textContent = 'Saved.'
+          setTimeout(() => { if (useUpOrderStatus) useUpOrderStatus.textContent = '' }, 2000)
+        } catch (err) {
+          if (useUpOrderStatus) useUpOrderStatus.textContent = 'Error: ' + err.message
+        } finally {
+          saveUseUpOrderBtn.disabled = false
+        }
       }
 
       function renderControlHelp(strategy) {
@@ -1073,6 +1202,8 @@ const HTML = `<!doctype html>
         if (rotationStrategyStatus) {
           rotationStrategyStatus.textContent = 'Rotation strategy: ' + strategy + ' — ' + description + forceNotice
         }
+        // Show/hide use-up order panel based on strategy
+        renderUseUpOrderPanel(strategy, latestState?.accounts, latestState?.useUpOrder ?? [])
       }
 
       async function api(path, options) {
@@ -2249,6 +2380,10 @@ const HTML = `<!doctype html>
         })
       }
 
+      if (saveUseUpOrderBtn) {
+        saveUseUpOrderBtn.addEventListener('click', () => saveUseUpOrder())
+      }
+
       renderControlHelp('round-robin')
       refreshState().catch((err) => {
         console.error(err)
@@ -3133,6 +3268,7 @@ export function startWebConsole(options) {
                     logPath: getLogPath(),
                     autoLogin,
                     rotationStrategy: runtimeSettings.settings.rotationStrategy,
+                    useUpOrder: runtimeSettings.settings.useUpOrder ?? [],
                     force: {
                         active: forceActive,
                         alias: forceState.forcedAlias,
@@ -3587,6 +3723,9 @@ export function startWebConsole(options) {
                 }
                 if (body.accountWeights) {
                     updates.accountWeights = body.accountWeights;
+                }
+                if (Array.isArray(body.useUpOrder)) {
+                    updates.useUpOrder = body.useUpOrder.filter((v) => typeof v === 'string');
                 }
                 // Phase G: Handle feature flags
                 if (body.featureFlags && typeof body.featureFlags === 'object') {
