@@ -181,17 +181,25 @@ export const DEFAULT_CONFIG: PluginConfig = {
 export interface RotationSettings {
   // Rotation strategy
   rotationStrategy: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin'
-  
+
   // Rate limit thresholds (0-100)
   criticalThreshold: number // Account skipped below this (default: 10)
   lowThreshold: number      // Warning threshold (default: 30)
-  
+
   // Account weights for weighted rotation (0-1, sum should be 1)
   accountWeights: Record<string, number>
-  
+
+  // Session-based sticky routing: pin each conversation to the account that handled its first request
+  stickySessionRouting: boolean        // default: true
+  sessionIdleTimeoutMs: number         // evict session mapping after this much idle time (default: 3_600_000)
+  // What to do when the pinned account is unavailable mid-session:
+  //   'rotate' – pick the next healthy account (session continues, thinking context resets)
+  //   'fail'   – return an error so the caller can decide (safest for context preservation)
+  sessionStickyFallback: 'rotate' | 'fail'  // default: 'rotate'
+
   // Phase G: Feature flags
   featureFlags?: FeatureFlags
-  
+
   // Last updated
   updatedAt?: number
   updatedBy?: string
@@ -227,6 +235,9 @@ export const DEFAULT_ROTATION_SETTINGS: RotationSettings = {
   criticalThreshold: 10,
   lowThreshold: 30,
   accountWeights: {},
+  stickySessionRouting: true,
+  sessionIdleTimeoutMs: 60 * 60 * 1000, // 1 hour
+  sessionStickyFallback: 'rotate',
   featureFlags: { ...DEFAULT_FEATURE_FLAGS }
 }
 

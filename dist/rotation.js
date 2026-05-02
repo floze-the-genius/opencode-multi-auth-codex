@@ -3,6 +3,7 @@ import { ensureValidToken } from './auth.js';
 import { decodeJwtPayload, getPlanTypeFromClaims } from './codex-auth.js';
 import { isForceActive, checkAndAutoClearForce, getForceState, clearForce } from './force-mode.js';
 import { getRuntimeSettings, calculateWeightedSelection } from './settings.js';
+import { getSessionAlias, setSessionAlias, clearSession } from './session-store.js';
 const HEALTH_HYSTERESIS_MS = 10_000;
 const RECENT_FAILURE_WINDOW_MS = 60_000;
 function shuffled(input) {
@@ -155,6 +156,63 @@ export async function getNextAccount(config, selection) {
             clearForce();
         }
     }
+    // --- Sticky session routing ---
+    const runtimeSettingsForSession = getRuntimeSettings();
+    const sessionSettings = runtimeSettingsForSession.settings;
+    const sessionId = selection?.sessionId;
+    if (sessionId &&
+        (sessionSettings.stickySessionRouting ?? true)) {
+        const idleTimeoutMs = sessionSettings.sessionIdleTimeoutMs ?? 60 * 60 * 1000;
+        const pinnedAlias = getSessionAlias(sessionId);
+        if (pinnedAlias) {
+            const pinnedAccount = store.accounts[pinnedAlias];
+            if (pinnedAccount) {
+                const pinnedHealth = evaluateAccountHealth(pinnedAccount, now);
+                if (pinnedHealth.isHealthy) {
+                    const token = await ensureValidToken(pinnedAlias);
+                    if (token) {
+                        store = updateAccount(pinnedAlias, {
+                            usageCount: (pinnedAccount.usageCount || 0) + 1,
+                            lastUsed: now,
+                            limitError: undefined
+                        });
+                        store.activeAlias = pinnedAlias;
+                        store.lastRotation = now;
+                        saveStore(store);
+                        setSessionAlias(sessionId, pinnedAlias, idleTimeoutMs);
+                        if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
+                            console.log(`[multi-auth] Session ${sessionId}: reusing pinned account ${pinnedAlias}`);
+                        }
+                        const currentForceState = getForceState();
+                        return {
+                            account: store.accounts[pinnedAlias],
+                            token,
+                            forceState: {
+                                active: isForceActive(),
+                                alias: currentForceState.forcedAlias,
+                                remainingMs: currentForceState.forcedUntil ? currentForceState.forcedUntil - now : 0
+                            }
+                        };
+                    }
+                }
+                // Pinned account is unhealthy.
+                const fallback = sessionSettings.sessionStickyFallback ?? 'rotate';
+                if (fallback === 'fail') {
+                    console.warn(`[multi-auth] Session ${sessionId}: pinned account ${pinnedAlias} is unavailable and sessionStickyFallback=fail`);
+                    return null;
+                }
+                // fallback === 'rotate': evict the mapping and fall through to normal rotation.
+                console.warn(`[multi-auth] Session ${sessionId}: pinned account ${pinnedAlias} unavailable; falling back to rotation`);
+                clearSession(sessionId);
+            }
+            else {
+                // Account was deleted; clean up stale mapping.
+                clearSession(sessionId);
+            }
+        }
+        // No existing mapping → fall through; after selection we'll record one.
+    }
+    // --- End sticky session routing ---
     const healthMap = new Map();
     for (const alias of aliases) {
         const acc = store.accounts[alias];
@@ -289,6 +347,14 @@ export async function getNextAccount(config, selection) {
             store.rotationIndex = nextIndex(candidate);
         }
         saveStore(store);
+        // Record session→account mapping for subsequent turns.
+        if (sessionId && (sessionSettings.stickySessionRouting ?? true)) {
+            const idleTimeoutMs = sessionSettings.sessionIdleTimeoutMs ?? 60 * 60 * 1000;
+            setSessionAlias(sessionId, candidate, idleTimeoutMs);
+            if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
+                console.log(`[multi-auth] Session ${sessionId}: pinned to account ${candidate}`);
+            }
+        }
         const currentForceState = getForceState();
         return {
             account: store.accounts[candidate],
@@ -363,4 +429,6 @@ export function clearAuthInvalid(alias) {
         authInvalidatedAt: undefined
     });
 }
+export { clearSessionsForAlias } from './session-store.js';
+export { listSessions, sessionCount, sessionCountByAlias, pruneExpired } from './session-store.js';
 //# sourceMappingURL=rotation.js.map

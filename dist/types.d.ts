@@ -115,6 +115,9 @@ export interface RotationSettings {
     criticalThreshold: number;
     lowThreshold: number;
     accountWeights: Record<string, number>;
+    stickySessionRouting: boolean;
+    sessionIdleTimeoutMs: number;
+    sessionStickyFallback: 'rotate' | 'fail';
     featureFlags?: FeatureFlags;
     updatedAt?: number;
     updatedBy?: string;

@@ -564,7 +564,8 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                             rotationStrategy: settings.settings.rotationStrategy
                         };
                         const rotation = await getNextAccount(effectiveConfig, {
-                            model: normalizedModel
+                            model: normalizedModel,
+                            sessionId: body?.prompt_cache_key || undefined
                         });
                         if (!rotation) {
                             if (forcePinned && forceState.forcedAlias) {

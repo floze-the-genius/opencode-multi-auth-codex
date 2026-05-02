@@ -659,7 +659,8 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
             }
 
             const rotation = await getNextAccount(effectiveConfig, {
-              model: normalizedModel
+              model: normalizedModel,
+              sessionId: body?.prompt_cache_key || undefined
             })
 
             if (!rotation) {

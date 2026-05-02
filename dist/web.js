@@ -13,6 +13,7 @@ import { getRefreshQueueState, startRefreshQueue, stopRefreshQueue } from './ref
 import { getLogPath, logError, logInfo, readLogTail } from './logger.js';
 import { getForceState, activateForce, clearForce, isForceActive, getRemainingForceTimeMs, formatForceDuration } from './force-mode.js';
 import { getSettings, getRuntimeSettings, isFeatureEnabled } from './settings.js';
+import { listSessions, sessionCountByAlias, clearSession, clearSessionsForAlias } from './session-store.js';
 import { Errors } from './errors.js';
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 3434;
@@ -3142,8 +3143,36 @@ export function startWebConsole(options) {
                         remainingTime: formatForceDuration(getRemainingForceTimeMs())
                     },
                     // Phase G: Include feature flags in state
-                    featureFlags: settings.settings.featureFlags || { antigravityEnabled: false }
+                    featureFlags: settings.settings.featureFlags || { antigravityEnabled: false },
+                    sessions: {
+                        count: listSessions().length,
+                        byAlias: sessionCountByAlias()
+                    }
                 });
+                return;
+            }
+            if (req.method === 'GET' && path === '/api/sessions') {
+                sendJson(res, 200, { sessions: listSessions() });
+                return;
+            }
+            if (req.method === 'DELETE' && path.startsWith('/api/sessions/')) {
+                const sessionId = decodeURIComponent(path.slice('/api/sessions/'.length));
+                if (!sessionId) {
+                    sendJson(res, 400, { error: 'Missing session ID' });
+                    return;
+                }
+                clearSession(sessionId);
+                sendJson(res, 200, { ok: true });
+                return;
+            }
+            if (req.method === 'DELETE' && path.startsWith('/api/accounts/') && path.endsWith('/sessions')) {
+                const alias = decodeURIComponent(path.slice('/api/accounts/'.length, -'/sessions'.length));
+                if (!alias) {
+                    sendJson(res, 400, { error: 'Missing alias' });
+                    return;
+                }
+                clearSessionsForAlias(alias);
+                sendJson(res, 200, { ok: true });
                 return;
             }
             if (req.method === 'GET' && path === '/api/logs') {

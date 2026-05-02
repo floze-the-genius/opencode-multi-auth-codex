@@ -44,6 +44,9 @@ export const DEFAULT_ROTATION_SETTINGS = {
     criticalThreshold: 10,
     lowThreshold: 30,
     accountWeights: {},
+    stickySessionRouting: true,
+    sessionIdleTimeoutMs: 60 * 60 * 1000, // 1 hour
+    sessionStickyFallback: 'rotate',
     featureFlags: { ...DEFAULT_FEATURE_FLAGS }
 };
 // Phase F: Preset configurations
