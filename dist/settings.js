@@ -17,7 +17,7 @@ function resolveSettings(includeEnvOverrides) {
     // Layer 2: Environment variables override (optional for runtime behavior)
     if (includeEnvOverrides) {
         const envStrategy = process.env.OPENCODE_MULTI_AUTH_ROTATION_STRATEGY;
-        if (envStrategy && ['round-robin', 'least-used', 'random', 'weighted-round-robin'].includes(envStrategy)) {
+        if (envStrategy && ['round-robin', 'least-used', 'random', 'weighted-round-robin', 'use-up'].includes(envStrategy)) {
             settings.rotationStrategy = envStrategy;
             source = 'env';
         }

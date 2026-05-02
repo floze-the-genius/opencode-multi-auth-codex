@@ -244,6 +244,25 @@ export async function getNextAccount(config, selection) {
                 }
                 return { aliases: [selected] };
             }
+            case 'use-up': {
+                // Always use the lowest-indexed available account by drain order.
+                // Once an account is exhausted (rate-limited) it drops out of
+                // candidateAliases, and the next one in order takes over.
+                const explicit = runtimeSettings.settings.useUpOrder ?? [];
+                const storeOrder = Object.keys(store.accounts);
+                const sorted = [...candidateAliases].sort((a, b) => {
+                    let ia = explicit.indexOf(a);
+                    let ib = explicit.indexOf(b);
+                    // Aliases not in the explicit list are appended after it,
+                    // ordered by store insertion order.
+                    if (ia === -1)
+                        ia = explicit.length + storeOrder.indexOf(a);
+                    if (ib === -1)
+                        ib = explicit.length + storeOrder.indexOf(b);
+                    return ia - ib;
+                });
+                return { aliases: sorted };
+            }
             case 'round-robin':
             default: {
                 const sorted = [...candidateAliases].sort((a, b) => {
