@@ -1,4 +1,4 @@
-import { loadStore, saveStore } from './store.js';
+import { loadStore, mutateStore } from './store.js';
 import { DEFAULT_ROTATION_SETTINGS, WEIGHTED_PRESETS, validateSettings } from './types.js';
 function resolveSettings(includeEnvOverrides) {
     const store = loadStore();
@@ -69,35 +69,39 @@ export function getRuntimeSettings() {
 }
 // Phase F: Update settings with validation
 export function updateSettings(updates, actor = 'system') {
-    const current = getRuntimeSettings();
-    // Merge updates with current settings
-    const newSettings = {
-        ...current.settings,
-        ...updates,
-        updatedAt: Date.now(),
-        updatedBy: actor
-    };
-    // Validate new settings
-    const errors = validateSettings(newSettings);
-    if (errors.length > 0) {
-        console.error(`[multi-auth] Settings update failed validation: ${errors.map(e => e.message).join(', ')}`);
-        return { success: false, errors };
+    let result = { success: false };
+    mutateStore((store) => {
+        const newSettings = {
+            ...DEFAULT_ROTATION_SETTINGS,
+            ...(store.settings || {}),
+            ...updates,
+            updatedAt: Date.now(),
+            updatedBy: actor
+        };
+        const errors = validateSettings(newSettings);
+        if (errors.length > 0) {
+            console.error(`[multi-auth] Settings update failed validation: ${errors.map(e => e.message).join(', ')}`);
+            result = { success: false, errors };
+            return store;
+        }
+        store.settings = newSettings;
+        // Keep legacy field in sync for force-mode compatibility.
+        store.rotationStrategy = newSettings.rotationStrategy;
+        result = { success: true, settings: newSettings };
+        return store;
+    });
+    if (result.success) {
+        console.log(`[multi-auth] Settings updated by ${actor}: ${JSON.stringify(updates)}`);
     }
-    // Save to store
-    const store = loadStore();
-    store.settings = newSettings;
-    // Keep legacy field in sync for force-mode compatibility.
-    store.rotationStrategy = newSettings.rotationStrategy;
-    saveStore(store);
-    console.log(`[multi-auth] Settings updated by ${actor}: ${JSON.stringify(updates)}`);
-    return { success: true, settings: newSettings };
+    return result;
 }
 // Phase F: Reset settings to defaults
 export function resetSettings(actor = 'system') {
-    const store = loadStore();
-    delete store.settings;
-    store.rotationStrategy = DEFAULT_ROTATION_SETTINGS.rotationStrategy;
-    saveStore(store);
+    mutateStore((store) => {
+        delete store.settings;
+        store.rotationStrategy = DEFAULT_ROTATION_SETTINGS.rotationStrategy;
+        return store;
+    });
     console.log(`[multi-auth] Settings reset to defaults by ${actor}`);
     return { ...DEFAULT_ROTATION_SETTINGS };
 }

@@ -1,6 +1,7 @@
 import type { AccountStore, AccountCredentials } from './types.js';
 export declare function loadStore(): AccountStore;
 export declare function saveStore(store: AccountStore): void;
+export declare function mutateStore<T>(fn: (store: AccountStore) => T): T;
 export declare function withWriteLock<T>(fn: () => T): Promise<T>;
 export declare function getStoreDiagnostics(): {
     storeDir: string;

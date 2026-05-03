@@ -1,4 +1,4 @@
-import { getStoreDiagnostics, loadStore, saveStore, updateAccount } from './store.js';
+import { getStoreDiagnostics, loadStore, mutateStore, updateAccount } from './store.js';
 import { ensureValidToken } from './auth.js';
 import { decodeJwtPayload, getPlanTypeFromClaims } from './codex-auth.js';
 import { isForceActive, checkAndAutoClearForce, getForceState, clearForce } from './force-mode.js';
@@ -120,14 +120,23 @@ export async function getNextAccount(config, selection) {
             if (health.isHealthy) {
                 const token = await ensureValidToken(forcedAlias);
                 if (token) {
-                    store = updateAccount(forcedAlias, {
-                        usageCount: (forcedAccount.usageCount || 0) + 1,
-                        lastUsed: now,
-                        limitError: undefined
+                    const updated = mutateStore((currentStore) => {
+                        const current = currentStore.accounts[forcedAlias];
+                        if (!current)
+                            return null;
+                        currentStore.accounts[forcedAlias] = {
+                            ...current,
+                            usageCount: (current.usageCount || 0) + 1,
+                            lastUsed: now,
+                            limitError: undefined
+                        };
+                        currentStore.activeAlias = forcedAlias;
+                        currentStore.lastRotation = now;
+                        return currentStore;
                     });
-                    store.activeAlias = forcedAlias;
-                    store.lastRotation = now;
-                    saveStore(store);
+                    if (!updated)
+                        return null;
+                    store = updated;
                     console.log(`[multi-auth] Force mode: using ${forcedAlias}`);
                     return {
                         account: store.accounts[forcedAlias],
@@ -170,14 +179,23 @@ export async function getNextAccount(config, selection) {
                 if (pinnedHealth.isHealthy) {
                     const token = await ensureValidToken(pinnedAlias);
                     if (token) {
-                        store = updateAccount(pinnedAlias, {
-                            usageCount: (pinnedAccount.usageCount || 0) + 1,
-                            lastUsed: now,
-                            limitError: undefined
+                        const updated = mutateStore((currentStore) => {
+                            const current = currentStore.accounts[pinnedAlias];
+                            if (!current)
+                                return null;
+                            currentStore.accounts[pinnedAlias] = {
+                                ...current,
+                                usageCount: (current.usageCount || 0) + 1,
+                                lastUsed: now,
+                                limitError: undefined
+                            };
+                            currentStore.activeAlias = pinnedAlias;
+                            currentStore.lastRotation = now;
+                            return currentStore;
                         });
-                        store.activeAlias = pinnedAlias;
-                        store.lastRotation = now;
-                        saveStore(store);
+                        if (!updated)
+                            return null;
+                        store = updated;
                         setSessionAlias(sessionId, pinnedAlias, idleTimeoutMs);
                         logDebug(`[multi-auth] Session ${sessionId}: reusing pinned account ${pinnedAlias}`);
                         const currentForceState = getForceState();
@@ -351,18 +369,28 @@ export async function getNextAccount(config, selection) {
             });
             continue;
         }
-        store = updateAccount(candidate, {
-            usageCount: (store.accounts[candidate]?.usageCount || 0) + 1,
-            lastUsed: now,
-            limitError: undefined
-        });
-        store.activeAlias = candidate;
-        store.lastRotation = now;
         const nextIndex = primary.aliases.includes(candidate) ? primary.nextIndex : fallback.nextIndex;
-        if (nextIndex) {
-            store.rotationIndex = nextIndex(candidate);
+        const updated = mutateStore((currentStore) => {
+            const current = currentStore.accounts[candidate];
+            if (!current)
+                return null;
+            currentStore.accounts[candidate] = {
+                ...current,
+                usageCount: (current.usageCount || 0) + 1,
+                lastUsed: now,
+                limitError: undefined
+            };
+            currentStore.activeAlias = candidate;
+            currentStore.lastRotation = now;
+            if (nextIndex) {
+                currentStore.rotationIndex = nextIndex(candidate);
+            }
+            return currentStore;
+        });
+        if (!updated) {
+            continue;
         }
-        saveStore(store);
+        store = updated;
         // Record session→account mapping for subsequent turns.
         if (sessionId && (sessionSettings.stickySessionRouting ?? true)) {
             const idleTimeoutMs = sessionSettings.sessionIdleTimeoutMs ?? 60 * 60 * 1000;
