@@ -41,9 +41,13 @@ export const DEFAULT_FEATURE_FLAGS = {
 // Phase F: Default settings
 export const DEFAULT_ROTATION_SETTINGS = {
     rotationStrategy: 'round-robin',
+    debug: false,
     criticalThreshold: 10,
     lowThreshold: 30,
     accountWeights: {},
+    stickySessionRouting: true,
+    sessionIdleTimeoutMs: 30 * 24 * 60 * 60 * 1000, // 30 days
+    sessionStickyFallback: 'fail',
     featureFlags: { ...DEFAULT_FEATURE_FLAGS }
 };
 // Phase F: Preset configurations
@@ -124,6 +128,15 @@ export function validateSettings(settings) {
                 constraint: 'sum(weights) ≈ 1.0'
             });
         }
+    }
+    if (settings.sessionStickyFallback !== undefined &&
+        settings.sessionStickyFallback !== 'rotate' &&
+        settings.sessionStickyFallback !== 'fail') {
+        errors.push({
+            field: 'sessionStickyFallback',
+            message: 'Session sticky fallback must be rotate or fail',
+            constraint: "sessionStickyFallback in ['rotate', 'fail']"
+        });
     }
     return errors;
 }

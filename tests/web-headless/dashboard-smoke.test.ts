@@ -95,6 +95,9 @@ describe('dashboard headless smoke', () => {
 
       const scriptContent = scriptMatch?.[1] || ''
       expect(() => new Function(scriptContent)).not.toThrow()
+      expect(html).toContain('log-entry-collapsible')
+      expect(scriptContent).toContain('function renderLogLine')
+      expect(scriptContent).toContain('click to expand')
     } finally {
       await closeServer(server)
       fs.unwatchFile(getCodexAuthPath())

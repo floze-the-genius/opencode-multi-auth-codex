@@ -252,7 +252,10 @@ describe('Phase G: Feature Flags', () => {
         rotationStrategy: 'round-robin',
         criticalThreshold: 10,
         lowThreshold: 30,
-        accountWeights: {}
+        accountWeights: {},
+        stickySessionRouting: true,
+        sessionIdleTimeoutMs: 60 * 60 * 1000,
+        sessionStickyFallback: 'rotate'
         // featureFlags is undefined
       }
       saveStore(store)

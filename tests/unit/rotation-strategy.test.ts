@@ -2,6 +2,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import { getNextAccount } from '../../src/rotation.js'
+import { clearSession } from '../../src/session-store.js'
 import { loadStore, saveStore } from '../../src/store.js'
 import { updateSettings } from '../../src/settings.js'
 import { DEFAULT_CONFIG, type AccountCredentials } from '../../src/types.js'
@@ -168,6 +169,8 @@ describe('Rotation Strategy Runtime Behavior', () => {
   })
 
   afterEach(() => {
+    clearSession('session-1')
+    clearSession('session-2')
     process.env = originalEnv
     if (fs.existsSync(TEST_DIR)) {
       fs.rmSync(TEST_DIR, { recursive: true, force: true })
@@ -212,6 +215,43 @@ describe('Rotation Strategy Runtime Behavior', () => {
     })
 
     expect(rotation?.account.alias).toBe('beta')
+  })
+
+  it('pins a session to the account selected for its first routed request', async () => {
+    const store = loadStore()
+    store.accounts.alpha = createAccount('alpha', 0)
+    store.accounts.beta = createAccount('beta', 0)
+    saveStore(store)
+
+    updateSettings({ rotationStrategy: 'round-robin', stickySessionRouting: true }, 'test')
+
+    const firstTurn = await getNextAccount(DEFAULT_CONFIG, { sessionId: 'session-1' })
+    expect(firstTurn?.account.alias).toBe('alpha')
+
+    const followUpTurn = await getNextAccount(DEFAULT_CONFIG, { sessionId: 'session-1' })
+    expect(followUpTurn?.account.alias).toBe('alpha')
+
+    const unrelatedTurn = await getNextAccount(DEFAULT_CONFIG)
+    expect(unrelatedTurn?.account.alias).toBe('beta')
+  })
+
+  it('tracks independent sticky mappings for different route session IDs', async () => {
+    const store = loadStore()
+    store.accounts.alpha = createAccount('alpha', 0)
+    store.accounts.beta = createAccount('beta', 0)
+    saveStore(store)
+
+    updateSettings({ rotationStrategy: 'round-robin', stickySessionRouting: true }, 'test')
+
+    const sessionOne = await getNextAccount(DEFAULT_CONFIG, { sessionId: 'session-1' })
+    const sessionTwo = await getNextAccount(DEFAULT_CONFIG, { sessionId: 'session-2' })
+    const sessionOneAgain = await getNextAccount(DEFAULT_CONFIG, { sessionId: 'session-1' })
+    const sessionTwoAgain = await getNextAccount(DEFAULT_CONFIG, { sessionId: 'session-2' })
+
+    expect(sessionOne?.account.alias).toBe('alpha')
+    expect(sessionTwo?.account.alias).toBe('beta')
+    expect(sessionOneAgain?.account.alias).toBe('alpha')
+    expect(sessionTwoAgain?.account.alias).toBe('beta')
   })
 
   it('prefers pro accounts first for non-spark models', async () => {

@@ -180,21 +180,31 @@ export const DEFAULT_CONFIG: PluginConfig = {
 // Phase F: Settings model for weighted rotation and thresholds
 export interface RotationSettings {
   // Rotation strategy
-  rotationStrategy: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin' | 'use-up'
-  
+  rotationStrategy: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin'
+    | 'use-up'
+  // Debug logging for request routing/content decisions
+  debug?: boolean
   // Rate limit thresholds (0-100)
   criticalThreshold: number // Account skipped below this (default: 10)
   lowThreshold: number      // Warning threshold (default: 30)
-  
+
   // Account weights for weighted rotation (0-1, sum should be 1)
   accountWeights: Record<string, number>
 
+  // Session-based sticky routing: pin each conversation to the account that handled its first request
+  stickySessionRouting: boolean        // default: true
+  sessionIdleTimeoutMs: number         // evict session mapping after this much idle time (default: 30 days)
+  // What to do when the pinned account is unavailable mid-session:
+  //   'rotate' – pick the next healthy account (session continues, thinking context resets)
+  //   'fail'   – return an error so the caller can decide (safest for context preservation)
+  sessionStickyFallback: 'rotate' | 'fail'  // default: 'fail'
+
   // Drain order for use-up strategy (ordered list of aliases)
   useUpOrder?: string[]
-  
+
   // Phase G: Feature flags
   featureFlags?: FeatureFlags
-  
+
   // Last updated
   updatedAt?: number
   updatedBy?: string
@@ -227,9 +237,13 @@ export interface WeightedPresetConfig {
 // Phase F: Default settings
 export const DEFAULT_ROTATION_SETTINGS: RotationSettings = {
   rotationStrategy: 'round-robin',
+  debug: false,
   criticalThreshold: 10,
   lowThreshold: 30,
   accountWeights: {},
+  stickySessionRouting: true,
+  sessionIdleTimeoutMs: 30 * 24 * 60 * 60 * 1000, // 30 days
+  sessionStickyFallback: 'fail',
   featureFlags: { ...DEFAULT_FEATURE_FLAGS }
 }
 
@@ -324,6 +338,18 @@ export function validateSettings(settings: Partial<RotationSettings>): SettingsV
         constraint: 'sum(weights) ≈ 1.0'
       })
     }
+  }
+
+  if (
+    settings.sessionStickyFallback !== undefined &&
+    settings.sessionStickyFallback !== 'rotate' &&
+    settings.sessionStickyFallback !== 'fail'
+  ) {
+    errors.push({
+      field: 'sessionStickyFallback',
+      message: 'Session sticky fallback must be rotate or fail',
+      constraint: "sessionStickyFallback in ['rotate', 'fail']"
+    })
   }
   
   return errors
