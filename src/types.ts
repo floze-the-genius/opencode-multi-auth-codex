@@ -182,6 +182,8 @@ export interface RotationSettings {
   // Rotation strategy
   rotationStrategy: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin'
     | 'use-up'
+  // Debug logging for request routing/content decisions
+  debug?: boolean
   // Rate limit thresholds (0-100)
   criticalThreshold: number // Account skipped below this (default: 10)
   lowThreshold: number      // Warning threshold (default: 30)
@@ -235,6 +237,7 @@ export interface WeightedPresetConfig {
 // Phase F: Default settings
 export const DEFAULT_ROTATION_SETTINGS: RotationSettings = {
   rotationStrategy: 'round-robin',
+  debug: false,
   criticalThreshold: 10,
   lowThreshold: 30,
   accountWeights: {},

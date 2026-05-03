@@ -37,6 +37,7 @@ describe('Phase F: Settings + Weighted Rotation', () => {
     delete process.env.OPENCODE_MULTI_AUTH_ROTATION_STRATEGY
     delete process.env.OPENCODE_MULTI_AUTH_CRITICAL_THRESHOLD
     delete process.env.OPENCODE_MULTI_AUTH_LOW_THRESHOLD
+    delete process.env.OPENCODE_MULTI_AUTH_DEBUG
   })
   
   afterEach(() => {
@@ -52,6 +53,7 @@ describe('Phase F: Settings + Weighted Rotation', () => {
       
       expect(result.source).toBe('default')
       expect(result.settings.rotationStrategy).toBe('round-robin')
+      expect(result.settings.debug).toBe(false)
       expect(result.settings.criticalThreshold).toBe(10)
       expect(result.settings.lowThreshold).toBe(30)
       expect(result.settings.accountWeights).toEqual({})
@@ -115,6 +117,15 @@ describe('Phase F: Settings + Weighted Rotation', () => {
       
       expect(result.source).toBe('env')
       expect(result.settings.lowThreshold).toBe(45)
+    })
+
+    it('should use environment variable for debug logging', () => {
+      process.env.OPENCODE_MULTI_AUTH_DEBUG = '1'
+
+      const result = getSettings()
+
+      expect(result.source).toBe('env')
+      expect(result.settings.debug).toBe(true)
     })
   })
 
@@ -333,6 +344,16 @@ describe('Phase F: Settings + Weighted Rotation', () => {
       const store = loadStore()
       expect(store.settings?.updatedBy).toBe('admin-user')
       expect(store.settings?.updatedAt).toBeDefined()
+    })
+
+    it('should persist debug logging setting', () => {
+      const result = updateSettings({ debug: true }, 'test')
+
+      expect(result.success).toBe(true)
+      expect(result.settings?.debug).toBe(true)
+
+      const loaded = getSettings()
+      expect(loaded.settings.debug).toBe(true)
     })
 
     it('should allow checking if settings can be reset', () => {

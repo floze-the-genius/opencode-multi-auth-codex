@@ -41,6 +41,7 @@ export const DEFAULT_FEATURE_FLAGS = {
 // Phase F: Default settings
 export const DEFAULT_ROTATION_SETTINGS = {
     rotationStrategy: 'round-robin',
+    debug: false,
     criticalThreshold: 10,
     lowThreshold: 30,
     accountWeights: {},

@@ -329,6 +329,12 @@ Outlook login often shows interstitial pages after password entry:
 - `OPENCODE_MULTI_AUTH_TRUNCATION`
 - `OPENCODE_MULTI_AUTH_DEBUG`
 
+### Debug logging
+
+- Dashboard setting: `Debug logging` toggle in the Logs panel
+- `OPENCODE_MULTI_AUTH_DEBUG=1` forces debug logging on at runtime
+- Debug request payload previews are capped at 20 KB per log entry and redacted for common secrets
+
 ## Latest Codex Mapping
 
 The plugin can route older Codex selections to the latest Codex backend model when you explicitly opt in.

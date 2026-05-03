@@ -1,5 +1,4 @@
 import { loadStore, saveStore } from './store.js';
-import { logInfo, logError } from './logger.js';
 import { DEFAULT_ROTATION_SETTINGS, WEIGHTED_PRESETS, validateSettings } from './types.js';
 function resolveSettings(includeEnvOverrides) {
     const store = loadStore();
@@ -37,6 +36,11 @@ function resolveSettings(includeEnvOverrides) {
                 source = 'env';
             }
         }
+        const envDebug = process.env.OPENCODE_MULTI_AUTH_DEBUG;
+        if (envDebug && (envDebug === '1' || envDebug.toLowerCase() === 'true')) {
+            settings.debug = true;
+            source = 'env';
+        }
         // Phase G: Feature flag environment overrides
         const envAntigravity = process.env.OPENCODE_MULTI_AUTH_ANTIGRAVITY_ENABLED;
         if (envAntigravity) {
@@ -51,7 +55,7 @@ function resolveSettings(includeEnvOverrides) {
     // Validate final settings
     const errors = validateSettings(settings);
     if (errors.length > 0) {
-        logError(`Settings validation errors: ${errors.map(e => e.message).join(', ')}`);
+        console.error(`[multi-auth] Settings validation errors: ${errors.map(e => e.message).join(', ')}`);
     }
     return { settings, source, errors: errors.length > 0 ? errors : undefined };
 }
@@ -76,7 +80,7 @@ export function updateSettings(updates, actor = 'system') {
     // Validate new settings
     const errors = validateSettings(newSettings);
     if (errors.length > 0) {
-        logError(`Settings update failed validation: ${errors.map(e => e.message).join(', ')}`);
+        console.error(`[multi-auth] Settings update failed validation: ${errors.map(e => e.message).join(', ')}`);
         return { success: false, errors };
     }
     // Save to store
@@ -85,7 +89,7 @@ export function updateSettings(updates, actor = 'system') {
     // Keep legacy field in sync for force-mode compatibility.
     store.rotationStrategy = newSettings.rotationStrategy;
     saveStore(store);
-    logInfo(`Settings updated by ${actor}: ${JSON.stringify(updates)}`);
+    console.log(`[multi-auth] Settings updated by ${actor}: ${JSON.stringify(updates)}`);
     return { success: true, settings: newSettings };
 }
 // Phase F: Reset settings to defaults
@@ -94,7 +98,7 @@ export function resetSettings(actor = 'system') {
     delete store.settings;
     store.rotationStrategy = DEFAULT_ROTATION_SETTINGS.rotationStrategy;
     saveStore(store);
-    logInfo(`Settings reset to defaults by ${actor}`);
+    console.log(`[multi-auth] Settings reset to defaults by ${actor}`);
     return { ...DEFAULT_ROTATION_SETTINGS };
 }
 // Phase F: Apply a preset

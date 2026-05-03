@@ -10,8 +10,10 @@
  * because the upstream context window would also be gone.
  */
 const sessions = new Map();
+const pendingFirstTurns = [];
 let pruneTimer = null;
 const PRUNE_INTERVAL_MS = 5 * 60 * 1000; // check every 5 minutes
+const PENDING_FIRST_TURN_TTL_MS = 60 * 1000;
 function startPruneTimer(idleTimeoutMs) {
     if (pruneTimer !== null)
         return;
@@ -30,6 +32,47 @@ export function pruneExpired(idleTimeoutMs) {
 }
 export function getSessionAlias(sessionId) {
     return sessions.get(sessionId)?.alias;
+}
+function prunePendingFirstTurns(now = Date.now()) {
+    const cutoff = now - PENDING_FIRST_TURN_TTL_MS;
+    while (pendingFirstTurns.length > 0 && pendingFirstTurns[0].createdAt < cutoff) {
+        pendingFirstTurns.shift();
+    }
+}
+function fingerprintsEqual(a, b) {
+    if (!a || !b)
+        return false;
+    return a.model === b.model &&
+        a.project === b.project &&
+        a.directory === b.directory &&
+        a.inputHash === b.inputHash;
+}
+export function recordPendingFirstTurnAlias(alias, fingerprint) {
+    prunePendingFirstTurns();
+    if (fingerprint) {
+        const existingIndex = pendingFirstTurns.findIndex((entry) => fingerprintsEqual(entry.fingerprint, fingerprint));
+        if (existingIndex >= 0) {
+            pendingFirstTurns.splice(existingIndex, 1);
+        }
+    }
+    pendingFirstTurns.push({ alias, createdAt: Date.now(), fingerprint });
+}
+export function consumePendingFirstTurnAlias(fingerprint) {
+    prunePendingFirstTurns();
+    if (fingerprint) {
+        const matchIndex = pendingFirstTurns.findIndex((entry) => fingerprintsEqual(entry.fingerprint, fingerprint));
+        if (matchIndex >= 0) {
+            const [entry] = pendingFirstTurns.splice(matchIndex, 1);
+            return entry.alias;
+        }
+    }
+    if (pendingFirstTurns.length === 1) {
+        return pendingFirstTurns.shift()?.alias;
+    }
+    return undefined;
+}
+export function clearPendingFirstTurnAliases() {
+    pendingFirstTurns.length = 0;
 }
 export function setSessionAlias(sessionId, alias, idleTimeoutMs) {
     const now = Date.now();

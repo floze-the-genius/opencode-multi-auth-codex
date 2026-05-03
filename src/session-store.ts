@@ -16,10 +16,25 @@ export interface SessionEntry {
   lastUsedAt: number
 }
 
+export interface PendingFirstTurnFingerprint {
+  model?: string
+  project?: string
+  directory?: string
+  inputHash?: string
+}
+
+interface PendingFirstTurnEntry {
+  alias: string
+  createdAt: number
+  fingerprint?: PendingFirstTurnFingerprint
+}
+
 const sessions = new Map<string, SessionEntry>()
+const pendingFirstTurns: PendingFirstTurnEntry[] = []
 let pruneTimer: ReturnType<typeof setInterval> | null = null
 
 const PRUNE_INTERVAL_MS = 5 * 60 * 1000 // check every 5 minutes
+const PENDING_FIRST_TURN_TTL_MS = 60 * 1000
 
 function startPruneTimer(idleTimeoutMs: number): void {
   if (pruneTimer !== null) return
@@ -39,6 +54,61 @@ export function pruneExpired(idleTimeoutMs: number): void {
 
 export function getSessionAlias(sessionId: string): string | undefined {
   return sessions.get(sessionId)?.alias
+}
+
+function prunePendingFirstTurns(now: number = Date.now()): void {
+  const cutoff = now - PENDING_FIRST_TURN_TTL_MS
+  while (pendingFirstTurns.length > 0 && pendingFirstTurns[0].createdAt < cutoff) {
+    pendingFirstTurns.shift()
+  }
+}
+
+function fingerprintsEqual(
+  a: PendingFirstTurnFingerprint | undefined,
+  b: PendingFirstTurnFingerprint | undefined
+): boolean {
+  if (!a || !b) return false
+  return a.model === b.model &&
+    a.project === b.project &&
+    a.directory === b.directory &&
+    a.inputHash === b.inputHash
+}
+
+export function recordPendingFirstTurnAlias(
+  alias: string,
+  fingerprint?: PendingFirstTurnFingerprint
+): void {
+  prunePendingFirstTurns()
+  if (fingerprint) {
+    const existingIndex = pendingFirstTurns.findIndex((entry) => fingerprintsEqual(entry.fingerprint, fingerprint))
+    if (existingIndex >= 0) {
+      pendingFirstTurns.splice(existingIndex, 1)
+    }
+  }
+  pendingFirstTurns.push({ alias, createdAt: Date.now(), fingerprint })
+}
+
+export function consumePendingFirstTurnAlias(
+  fingerprint?: PendingFirstTurnFingerprint
+): string | undefined {
+  prunePendingFirstTurns()
+  if (fingerprint) {
+    const matchIndex = pendingFirstTurns.findIndex((entry) => fingerprintsEqual(entry.fingerprint, fingerprint))
+    if (matchIndex >= 0) {
+      const [entry] = pendingFirstTurns.splice(matchIndex, 1)
+      return entry.alias
+    }
+  }
+
+  if (pendingFirstTurns.length === 1) {
+    return pendingFirstTurns.shift()?.alias
+  }
+
+  return undefined
+}
+
+export function clearPendingFirstTurnAliases(): void {
+  pendingFirstTurns.length = 0
 }
 
 export function setSessionAlias(sessionId: string, alias: string, idleTimeoutMs: number): void {

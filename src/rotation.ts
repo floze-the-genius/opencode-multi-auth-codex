@@ -6,10 +6,13 @@ import { getRuntimeSettings, calculateWeightedSelection } from './settings.js'
 import {
   getSessionAlias,
   setSessionAlias,
+  consumePendingFirstTurnAlias,
   clearSession,
-  clearSessionsForAlias
+  clearSessionsForAlias,
+  type PendingFirstTurnFingerprint
 } from './session-store.js'
 import type { AccountCredentials, DEFAULT_CONFIG } from './types.js'
+import { logDebug } from './logger.js'
 
 export interface RotationResult {
   account: AccountCredentials
@@ -26,6 +29,7 @@ export interface AccountSelectionContext {
   /** Stable identifier for this conversation (prompt_cache_key). When set and
    *  stickySessionRouting is enabled the same account is reused for all turns. */
   sessionId?: string
+  firstTurnFingerprint?: PendingFirstTurnFingerprint
 }
 
 const HEALTH_HYSTERESIS_MS = 10_000
@@ -147,7 +151,7 @@ export async function getNextAccount(
   // Phase E: Check and auto-clear expired/invalid force state
   const autoClear = checkAndAutoClearForce()
   if (autoClear.wasCleared) {
-    console.log(`[multi-auth] Force mode auto-cleared: ${autoClear.reason}`)
+    logDebug(`[multi-auth] Force mode auto-cleared: ${autoClear.reason}`)
   }
   
   // Phase E: Check if force mode is active
@@ -163,9 +167,7 @@ export async function getNextAccount(
     console.error(
       `[multi-auth] No accounts configured. Run: opencode-multi-auth add <alias>${extra}`
     )
-    if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
-      console.error(`[multi-auth] store file: ${diag.storeFile}`)
-    }
+    logDebug(`[multi-auth] store file: ${diag.storeFile}`)
     return null
   }
 
@@ -248,9 +250,7 @@ export async function getNextAccount(
             saveStore(store)
             setSessionAlias(sessionId, pinnedAlias, idleTimeoutMs)
 
-            if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
-              console.log(`[multi-auth] Session ${sessionId}: reusing pinned account ${pinnedAlias}`)
-            }
+            logDebug(`[multi-auth] Session ${sessionId}: reusing pinned account ${pinnedAlias}`)
 
             const currentForceState = getForceState()
             return {
@@ -283,8 +283,45 @@ export async function getNextAccount(
         // Account was deleted; clean up stale mapping.
         clearSession(sessionId)
       }
+    } else {
+      const pendingAlias = consumePendingFirstTurnAlias(selection?.firstTurnFingerprint)
+
+      if (pendingAlias) {
+        const pendingAccount = store.accounts[pendingAlias]
+        const pendingHealth = pendingAccount ? evaluateAccountHealth(pendingAccount, now) : null
+
+        if (pendingAccount && pendingHealth?.isHealthy) {
+          const token = await ensureValidToken(pendingAlias)
+          if (token) {
+            store = updateAccount(pendingAlias, {
+              usageCount: (pendingAccount.usageCount || 0) + 1,
+              lastUsed: now,
+              limitError: undefined
+            })
+            store.activeAlias = pendingAlias
+            store.lastRotation = now
+            saveStore(store)
+            setSessionAlias(sessionId, pendingAlias, idleTimeoutMs)
+
+            logDebug(`[multi-auth] Session ${sessionId}: pinned to first-turn account ${pendingAlias}`)
+
+            const currentForceState = getForceState()
+            return {
+              account: store.accounts[pendingAlias],
+              token,
+              forceState: {
+                active: isForceActive(),
+                alias: currentForceState.forcedAlias,
+                remainingMs: currentForceState.forcedUntil ? currentForceState.forcedUntil - now : 0
+              }
+            }
+          }
+        }
+
+        logDebug(`[multi-auth] Session ${sessionId}: first-turn account ${pendingAlias} unavailable; falling back to rotation`)
+      }
     }
-    // No existing mapping → fall through; after selection we'll record one.
+    // No existing mapping and no usable first-turn handoff → fall through; after selection we'll record one.
   }
   // --- End sticky session routing ---
 
@@ -459,9 +496,7 @@ export async function getNextAccount(
     if (sessionId && (sessionSettings.stickySessionRouting ?? true)) {
       const idleTimeoutMs = sessionSettings.sessionIdleTimeoutMs ?? 60 * 60 * 1000
       setSessionAlias(sessionId, candidate, idleTimeoutMs)
-      if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
-        console.log(`[multi-auth] Session ${sessionId}: pinned to account ${candidate}`)
-      }
+      logDebug(`[multi-auth] Session ${sessionId}: pinned to account ${candidate}`)
     }
 
     const currentForceState = getForceState()

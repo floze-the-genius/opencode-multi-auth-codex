@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { syncAuthFromOpenCode } from './auth-sync.js';
 import { createAuthorizationFlow, loginAccount } from './auth.js';
@@ -6,9 +7,11 @@ import { getNextAccount, markAuthInvalid, markModelUnsupported, markRateLimited,
 import { getDefaultModels } from './models.js';
 import { getForceState, isForceActive } from './force-mode.js';
 import { getRuntimeSettings } from './settings.js';
+import { recordPendingFirstTurnAlias } from './session-store.js';
 import { listAccounts, updateAccount, loadStore } from './store.js';
 import { DEFAULT_CONFIG } from './types.js';
 import { Errors } from './errors.js';
+import { isDebugEnabled, logDebug, logDebugValue } from './logger.js';
 const PROVIDER_ID = 'openai';
 const CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
 const REDIRECT_PORT = 1455;
@@ -53,6 +56,37 @@ function extractRequestUrl(input) {
     if (input instanceof URL)
         return input.toString();
     return input.url;
+}
+function getRequestHeader(input, init, name) {
+    const lowerName = name.toLowerCase();
+    const headers = init?.headers;
+    if (headers instanceof Headers) {
+        const value = headers.get(name) || headers.get(lowerName);
+        if (value)
+            return value;
+    }
+    else if (Array.isArray(headers)) {
+        for (const [key, value] of headers) {
+            if (key.toLowerCase() === lowerName)
+                return value;
+        }
+    }
+    else if (headers && typeof headers === 'object') {
+        const record = headers;
+        for (const [key, value] of Object.entries(record)) {
+            if (key.toLowerCase() !== lowerName)
+                continue;
+            if (Array.isArray(value))
+                return value[0];
+            return value;
+        }
+    }
+    if (input instanceof Request) {
+        const value = input.headers.get(name) || input.headers.get(lowerName);
+        if (value)
+            return value;
+    }
+    return undefined;
 }
 function rewriteUrlForCodex(url) {
     return url.replace(URL_PATHS.RESPONSES, URL_PATHS.CODEX_RESPONSES);
@@ -101,7 +135,49 @@ function filterInput(input) {
         return item;
     });
 }
-function normalizeModel(model) {
+function normalizeFingerprintText(text) {
+    return text.replace(/\s+/g, ' ').trim();
+}
+function getFirstUserInputText(input) {
+    if (!Array.isArray(input))
+        return undefined;
+    for (const item of input) {
+        if (!item || typeof item !== 'object')
+            continue;
+        const record = item;
+        if (record.role !== 'user')
+            continue;
+        const content = record.content;
+        if (!Array.isArray(content))
+            continue;
+        const parts = content
+            .map((part) => {
+            if (!part || typeof part !== 'object')
+                return '';
+            const contentPart = part;
+            if (contentPart.type !== 'input_text' || typeof contentPart.text !== 'string')
+                return '';
+            const text = contentPart.text.trim();
+            return text.startsWith('<system-reminder>') ? '' : text;
+        })
+            .filter(Boolean);
+        const normalized = normalizeFingerprintText(parts.join(' '));
+        return normalized || undefined;
+    }
+    return undefined;
+}
+function buildFirstTurnFingerprint(payload, context) {
+    const userText = getFirstUserInputText(payload.input);
+    if (!userText)
+        return undefined;
+    return {
+        model: context.model || 'nomodel',
+        project: context.project,
+        directory: context.directory,
+        inputHash: createHash('sha256').update(userText).digest('hex')
+    };
+}
+function normalizeModel(model, debugEnabled) {
     if (!model)
         return 'gpt-5.1';
     const modelId = model.includes('/') ? model.split('/').pop() : model;
@@ -116,9 +192,7 @@ function normalizeModel(model) {
             baseModel === 'gpt-5.2-codex' ||
             baseModel === 'gpt-5-codex')) {
         const latestModel = (process.env.OPENCODE_MULTI_AUTH_CODEX_LATEST_MODEL || DEFAULT_LATEST_CODEX_MODEL).trim();
-        if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
-            console.log(`[multi-auth] model map: ${baseModel} -> ${latestModel}`);
-        }
+        logDebug(`[multi-auth] model map: ${baseModel} -> ${latestModel}`, debugEnabled);
         return latestModel;
     }
     return baseModel;
@@ -277,9 +351,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
         else {
             if (macOpenEnabled && clickUrl && !terminalNotifierPath && !didWarnTerminalNotifier) {
                 didWarnTerminalNotifier = true;
-                if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
-                    console.log('[multi-auth] mac click-to-open requires terminal-notifier (brew install terminal-notifier)');
-                }
+                logDebug('[multi-auth] mac click-to-open requires terminal-notifier (brew install terminal-notifier)');
             }
             try {
                 const osascript = '/usr/bin/osascript';
@@ -510,14 +582,10 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                         openai.whitelist.unshift(modelID);
                     }
                 }
-                if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
-                    console.log(`[multi-auth] injected runtime models: ${injectedModelIds.join(', ')}`);
-                }
+                logDebug(`[multi-auth] injected runtime models: ${injectedModelIds.join(', ')}`);
             }
             catch (err) {
-                if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
-                    console.log('[multi-auth] config injection failed:', err);
-                }
+                logDebugValue('[multi-auth] config injection failed', err);
             }
         },
         auth: {
@@ -534,6 +602,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                 }
                 const customFetch = async (input, init) => {
                     await syncAuthFromOpenCode(getAuth);
+                    const debugLogging = isDebugEnabled();
                     let body = {};
                     try {
                         body = init?.body ? JSON.parse(init.body) : {};
@@ -541,7 +610,26 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                     catch {
                         body = {};
                     }
-                    const normalizedModel = normalizeModel(body.model);
+                    const normalizedModel = normalizeModel(body.model, debugLogging);
+                    const sessionAffinity = getRequestHeader(input, init, 'x-session-affinity');
+                    const firstTurnFingerprint = buildFirstTurnFingerprint({ ...body, model: normalizedModel }, {
+                        model: typeof body.model === 'string' && body.model.trim() ? normalizedModel : undefined,
+                        project: project?.id,
+                        directory: directory || undefined
+                    });
+                    if (debugLogging) {
+                        /*
+                          logDebugValue('[multi-auth] request.body', {
+                            method: init?.method || 'POST',
+                            url: extractRequestUrl(input),
+                            model: body.model,
+                            normalizedModel,
+                            stream: body?.stream === true,
+                            sessionId: body?.prompt_cache_key,
+                            body
+                          }, debugLogging)
+                      */
+                    }
                     const store = loadStore();
                     const forceState = getForceState();
                     const forcePinned = isForceActive() && !!forceState.forcedAlias;
@@ -553,6 +641,8 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                             !acc.authInvalid &&
                             acc.enabled !== false;
                     }).length;
+                    logDebug(`[multi-auth] routing start model=${normalizedModel} eligible=${eligibleCount} forcePinned=${forcePinned}`, debugLogging);
+                    logDebug(`[multi-auth] session affinity=${sessionAffinity || 'none'} prompt_cache_key=${body?.prompt_cache_key || 'none'} firstConversation=${!body?.prompt_cache_key}`, debugLogging);
                     const maxAttempts = forcePinned ? 1 : Math.max(1, eligibleCount);
                     const triedAliases = new Set();
                     let attempt = 0;
@@ -565,7 +655,8 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                         };
                         const rotation = await getNextAccount(effectiveConfig, {
                             model: normalizedModel,
-                            sessionId: body?.prompt_cache_key || undefined
+                            sessionId: body?.prompt_cache_key || undefined,
+                            firstTurnFingerprint
                         });
                         if (!rotation) {
                             if (forcePinned && forceState.forcedAlias) {
@@ -586,13 +677,16 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                             }), { status: 503, headers: { 'Content-Type': 'application/json' } });
                         }
                         const { account, token } = rotation;
+                        logDebug(`[multi-auth] routing selected alias=${account.alias} strategy=${effectiveConfig.rotationStrategy} attempt=${attempt}/${maxAttempts}`, debugLogging);
                         if (triedAliases.has(account.alias)) {
+                            logDebug(`[multi-auth] routing skipped duplicate alias=${account.alias}`, debugLogging);
                             continue;
                         }
                         triedAliases.add(account.alias);
                         const decoded = decodeJWT(token);
                         const accountId = decoded?.[JWT_CLAIM_PATH]?.chatgpt_account_id;
                         if (!accountId) {
+                            logDebug(`[multi-auth] token parse failed alias=${account.alias}`, debugLogging);
                             return new Response(JSON.stringify({
                                 error: {
                                     code: 'TOKEN_PARSE_ERROR',
@@ -611,6 +705,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                             model: normalizedModel,
                             store: false
                         };
+                        // logDebugValue('[multi-auth] payload.before', payload, debugLogging)
                         if (payload.truncation === undefined) {
                             const truncationRaw = (process.env.OPENCODE_MULTI_AUTH_TRUNCATION || '').trim();
                             if (truncationRaw && truncationRaw !== 'disabled' && truncationRaw !== 'false' && truncationRaw !== '0') {
@@ -634,17 +729,20 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                         }
                         if (supportedFastMode) {
                             payload.service_tier = payload.service_tier || 'priority';
-                            if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
-                                console.log(`[multi-auth] fast mode enabled: ${normalizedModel} + service_tier=priority`);
-                            }
+                            logDebug(`[multi-auth] fast mode enabled: ${normalizedModel} + service_tier=priority`, debugLogging);
                         }
-                        else if (fastMode && process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
-                            console.log(`[multi-auth] fast mode ignored for unsupported model: ${normalizedModel}`);
+                        else if (fastMode) {
+                            logDebug(`[multi-auth] fast mode ignored for unsupported model: ${normalizedModel}`, debugLogging);
                         }
-                        if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1' && payload.service_tier === 'priority') {
-                            console.log(`[multi-auth] priority service tier requested for ${normalizedModel}`);
+                        if (payload.service_tier === 'priority') {
+                            logDebug(`[multi-auth] priority service tier requested for ${normalizedModel}`, debugLogging);
                         }
                         delete payload.reasoning_effort;
+                        logDebugValue('[multi-auth] payload.after', payload, debugLogging);
+                        if (!payload?.prompt_cache_key && (settings.settings.stickySessionRouting ?? true) && firstTurnFingerprint) {
+                            recordPendingFirstTurnAlias(account.alias, firstTurnFingerprint);
+                            logDebug(`[multi-auth] reserved first-turn route alias=${account.alias}`, debugLogging);
+                        }
                         try {
                             const headers = new Headers(init?.headers || {});
                             headers.delete('x-api-key');
@@ -664,6 +762,18 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                             }
                             headers.set('accept', 'text/event-stream');
                             const sendPayload = async (requestPayload) => {
+                                logDebugValue('[multi-auth] upstream.request', {
+                                    url,
+                                    method: init?.method || 'POST',
+                                    headers: {
+                                        accountId,
+                                        contentType: 'application/json',
+                                        beta: OPENAI_HEADER_VALUES.BETA_RESPONSES,
+                                        originator: OPENAI_HEADER_VALUES.ORIGINATOR_CODEX,
+                                        cacheKey: payload?.prompt_cache_key
+                                    },
+                                    requestPayload
+                                }, debugLogging);
                                 return fetch(url, {
                                     method: init?.method || 'POST',
                                     headers,
@@ -677,6 +787,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                                     : account.rateLimits;
                                 if (limitUpdate) {
                                     const blockingResetAt = getBlockingRateLimitResetAt(mergedRateLimits);
+                                    logDebug(`[multi-auth] rate limit update alias=${account.alias} blockingResetAt=${blockingResetAt || 'none'}`, debugLogging);
                                     updateAccount(account.alias, {
                                         rateLimits: mergedRateLimits,
                                         rateLimitedUntil: blockingResetAt
@@ -690,9 +801,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                                 const errorData = await res.clone().json().catch(() => ({}));
                                 const errorText = await res.clone().text().catch(() => '');
                                 if (isCyberPolicyError(errorData, errorText)) {
-                                    if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
-                                        console.log('[multi-auth] cyber_policy on priority tier; retrying once without service_tier');
-                                    }
+                                    logDebug('[multi-auth] cyber_policy on priority tier; retrying once without service_tier', debugLogging);
                                     const standardTierPayload = { ...payload };
                                     delete standardTierPayload.service_tier;
                                     res = await sendPayload(standardTierPayload);
@@ -703,6 +812,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                                 const errorData = await res.clone().json().catch(() => ({}));
                                 const message = errorData?.error?.message || '';
                                 if (message.toLowerCase().includes('invalidated') || res.status === 401) {
+                                    logDebug(`[multi-auth] auth invalidated alias=${account.alias} status=${res.status}`, debugLogging);
                                     markAuthInvalid(account.alias);
                                 }
                                 if (attempt < maxAttempts) {
@@ -716,6 +826,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                                 const errorData = await res.clone().json().catch(() => ({}));
                                 const errorText = extractErrorMessage(errorData);
                                 const rateLimitedUntil = resolveRateLimitedUntil(mergedRateLimits, res.headers, errorText, pluginConfig.rateLimitCooldownMs);
+                                logDebug(`[multi-auth] rate limited alias=${account.alias} until=${rateLimitedUntil}`, debugLogging);
                                 markRateLimited(account.alias, rateLimitedUntil);
                                 if (attempt < maxAttempts) {
                                     continue;
@@ -740,6 +851,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                                     message.toLowerCase().includes('deactivated_workspace') ||
                                     message.toLowerCase().includes('deactivated workspace');
                                 if (isDeactivatedWorkspace) {
+                                    logDebug(`[multi-auth] workspace deactivated alias=${account.alias} until=${Date.now() + pluginConfig.workspaceDeactivatedCooldownMs}`, debugLogging);
                                     markWorkspaceDeactivated(account.alias, pluginConfig.workspaceDeactivatedCooldownMs, {
                                         error: message || code
                                     });
@@ -761,6 +873,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                                     message.toLowerCase().includes('model is not supported') &&
                                     message.toLowerCase().includes('chatgpt account');
                                 if (isModelUnsupported) {
+                                    logDebug(`[multi-auth] model unsupported alias=${account.alias} model=${normalizedModel}`, debugLogging);
                                     markModelUnsupported(account.alias, pluginConfig.modelUnsupportedCooldownMs, {
                                         model: normalizedModel,
                                         error: message
@@ -774,15 +887,19 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                                 }
                             }
                             if (!res.ok) {
+                                logDebug(`[multi-auth] upstream response not ok alias=${account.alias} status=${res.status}`, debugLogging);
                                 return res;
                             }
                             const responseHeaders = ensureContentType(res.headers);
                             if (!isStreaming && responseHeaders.get('content-type')?.includes('text/event-stream')) {
+                                logDebug(`[multi-auth] converting SSE to JSON alias=${account.alias}`, debugLogging);
                                 return await convertSseToJson(res, responseHeaders);
                             }
+                            logDebug(`[multi-auth] upstream response ok alias=${account.alias} status=${res.status}`, debugLogging);
                             return res;
                         }
                         catch (err) {
+                            logDebugValue('[multi-auth] request failed', err, debugLogging);
                             return new Response(JSON.stringify({ error: { code: 'REQUEST_FAILED', message: `[multi-auth] Request failed: ${err}` } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
                         }
                     }

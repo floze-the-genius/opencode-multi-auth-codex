@@ -112,6 +112,7 @@ export interface ProviderModel {
 export declare const DEFAULT_CONFIG: PluginConfig;
 export interface RotationSettings {
     rotationStrategy: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin' | 'use-up';
+    debug?: boolean;
     criticalThreshold: number;
     lowThreshold: number;
     accountWeights: Record<string, number>;

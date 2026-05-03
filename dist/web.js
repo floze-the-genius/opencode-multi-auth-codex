@@ -10,7 +10,7 @@ import { createAuthorizationFlow, loginAccount, refreshToken } from './auth.js';
 import { getCodexAuthPath, getCodexAuthStatus, getCodexAuthSummary, resolveAliasForCurrentAuth, syncCodexAuthFile, writeCodexAuthForAlias } from './codex-auth.js';
 import { getStoreStatus, listAccounts, loadStore, removeAccount, updateAccount } from './store.js';
 import { getRefreshQueueState, startRefreshQueue, stopRefreshQueue } from './refresh-queue.js';
-import { getLogPath, logError, logInfo, readLogTail } from './logger.js';
+import { getLogPath, isDebugEnabled, isDebugEnvOverrideActive, logError, logInfo, readLogTail } from './logger.js';
 import { getForceState, activateForce, clearForce, isForceActive, getRemainingForceTimeMs, formatForceDuration } from './force-mode.js';
 import { getSettings, getRuntimeSettings, isFeatureEnabled } from './settings.js';
 import { listSessions, sessionCountByAlias, clearSession, clearSessionsForAlias } from './session-store.js';
@@ -636,6 +636,22 @@ const HTML = `<!doctype html>
         overflow: auto;
         white-space: pre-wrap;
       }
+      .log-entry-collapsible {
+        display: block;
+        margin: 2px 0;
+      }
+      .log-entry-collapsible summary {
+        cursor: pointer;
+        color: #9fb4d0;
+        outline: none;
+      }
+      .log-entry-collapsible summary:hover {
+        color: #d6dde8;
+      }
+      .log-entry-full {
+        display: block;
+        margin-top: 4px;
+      }
       .ag-grid {
         display: grid;
         gap: 12px;
@@ -971,8 +987,16 @@ const HTML = `<!doctype html>
             <div style="font-size: 16px; font-weight: 600;">Logs</div>
             <div class="notice" id="logPath"></div>
           </div>
-          <button class="secondary" id="refreshLogsBtn">Refresh logs</button>
+          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:flex-end;">
+            <label class="toggle-switch" id="debugLogToggleLabel" title="">
+              <input type="checkbox" id="debugLogToggle" />
+              <span class="toggle-slider"></span>
+              <span class="toggle-label" id="debugLogToggleText">Off</span>
+            </label>
+            <button class="secondary" id="refreshLogsBtn">Refresh logs</button>
+          </div>
         </div>
+        <div class="notice" id="debugLogStatus"></div>
         <pre class="log-box" id="logBox"></pre>
       </section>
     </div>
@@ -1029,6 +1053,10 @@ const HTML = `<!doctype html>
       const logBox = document.getElementById('logBox')
       const refreshLogsBtn = document.getElementById('refreshLogsBtn')
       const logPathEl = document.getElementById('logPath')
+      const debugLogToggle = document.getElementById('debugLogToggle')
+      const debugLogToggleText = document.getElementById('debugLogToggleText')
+      const debugLogToggleLabel = document.getElementById('debugLogToggleLabel')
+      const debugLogStatus = document.getElementById('debugLogStatus')
       const openAccountModalBtn = document.getElementById('openAccountModalBtn')
       const addAliasInput = document.getElementById('addAliasInput')
       const addAccountBtn = document.getElementById('addAccountBtn')
@@ -1251,6 +1279,18 @@ const HTML = `<!doctype html>
           .replace(/>/g, '&gt;')
           .replace(/"/g, '&quot;')
           .replace(/'/g, '&#39;')
+      }
+
+      function renderLogLine(line) {
+        const text = String(line || '')
+        const collapseAt = 500
+        const previewLength = 220
+        if (text.length <= collapseAt) return escapeHtml(text)
+        const preview = text.slice(0, previewLength).trimEnd()
+        return '<details class="log-entry-collapsible">' +
+          '<summary>' + escapeHtml(preview) + '... (' + text.length + ' chars, click to expand)</summary>' +
+          '<span class="log-entry-full">' + escapeHtml(text) + '</span>' +
+          '</details>'
       }
 
       function remainingPercent(window) {
@@ -1551,6 +1591,26 @@ const HTML = `<!doctype html>
           </div>
         \`
         notice.textContent = state.lastSyncError || storeStatus.error || ''
+      }
+
+      function renderDebugLogging(state) {
+        if (!debugLogToggle || !debugLogToggleText) return
+        const enabled = Boolean(state.debugEnabled)
+        const persisted = Boolean(state.debugPersisted)
+        const envOverride = Boolean(state.debugEnvOverride)
+        debugLogToggle.checked = enabled
+        debugLogToggle.disabled = envOverride
+        debugLogToggleText.textContent = enabled ? (envOverride ? 'On (env)' : 'On') : 'Off'
+        if (debugLogToggleLabel) {
+          debugLogToggleLabel.title = envOverride
+            ? 'Debug logging is forced on by OPENCODE_MULTI_AUTH_DEBUG'
+            : 'Toggle per-request debug logging'
+        }
+        if (debugLogStatus) {
+          debugLogStatus.textContent = envOverride
+            ? 'Debug logging is forced on by OPENCODE_MULTI_AUTH_DEBUG.'
+            : (persisted ? 'Debug logging is enabled.' : 'Debug logging is disabled.')
+        }
       }
 
       function renderLogin(state) {
@@ -1861,13 +1921,15 @@ const HTML = `<!doctype html>
       async function refreshLogs() {
         const logs = await api('/api/logs')
         logPathEl.textContent = logs.path ? \`Path: \${logs.path}\` : ''
-        logBox.textContent = (logs.lines || []).join('\\n') || 'No logs yet.'
+        const lines = logs.lines || []
+        logBox.innerHTML = lines.length ? lines.map(renderLogLine).join('\\n') : 'No logs yet.'
       }
 
       async function refreshState() {
         const state = await api('/api/state')
         latestState = state
         renderMeta(state)
+        renderDebugLogging(state)
         renderQueue(state)
         renderAccounts(state)
         renderLogin(state)
@@ -2377,6 +2439,30 @@ const HTML = `<!doctype html>
             showToast('Error: ' + err.message)
           } finally {
             rotationStrategySelect.disabled = false
+          }
+        })
+      }
+
+      if (debugLogToggle) {
+        debugLogToggle.addEventListener('change', async () => {
+          const nextValue = debugLogToggle.checked
+          const previous = Boolean(latestState?.debugEnabled)
+          debugLogToggle.disabled = true
+          try {
+            await api('/api/settings', {
+              method: 'PUT',
+              body: JSON.stringify({
+                debug: nextValue,
+                actor: 'dashboard'
+              })
+            })
+            showToast('Debug logging ' + (nextValue ? 'enabled' : 'disabled'))
+            await refreshState()
+          } catch (err) {
+            debugLogToggle.checked = previous
+            showToast('Error: ' + err.message)
+          } finally {
+            debugLogToggle.disabled = Boolean(latestState?.debugEnvOverride)
           }
         })
       }
@@ -3247,6 +3333,7 @@ export function startWebConsole(options) {
                 const runtimeSettings = getRuntimeSettings();
                 const antigravityEnabled = settings.settings.featureFlags?.antigravityEnabled ?? false;
                 const antigravity = antigravityEnabled ? loadAntigravityAccounts() : { accounts: [], path: ANTIGRAVITY_ACCOUNTS_FILE };
+                const debugEnabled = isDebugEnabled();
                 const forceState = getForceState();
                 const forceActive = isForceActive();
                 const autoLogin = loadAutoLoginConfig();
@@ -3268,6 +3355,9 @@ export function startWebConsole(options) {
                     recommendedAlias: recommendAlias(rawAccounts),
                     logPath: getLogPath(),
                     autoLogin,
+                    debugEnabled,
+                    debugPersisted: settings.settings.debug ?? false,
+                    debugEnvOverride: isDebugEnvOverrideActive(),
                     rotationStrategy: runtimeSettings.settings.rotationStrategy,
                     useUpOrder: runtimeSettings.settings.useUpOrder ?? [],
                     force: {
@@ -3743,6 +3833,9 @@ export function startWebConsole(options) {
                 const updates = {};
                 if (body.rotationStrategy) {
                     updates.rotationStrategy = body.rotationStrategy;
+                }
+                if (typeof body.debug === 'boolean') {
+                    updates.debug = body.debug;
                 }
                 if (typeof body.criticalThreshold === 'number') {
                     updates.criticalThreshold = body.criticalThreshold;

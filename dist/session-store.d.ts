@@ -14,8 +14,17 @@ export interface SessionEntry {
     createdAt: number;
     lastUsedAt: number;
 }
+export interface PendingFirstTurnFingerprint {
+    model?: string;
+    project?: string;
+    directory?: string;
+    inputHash?: string;
+}
 export declare function pruneExpired(idleTimeoutMs: number): void;
 export declare function getSessionAlias(sessionId: string): string | undefined;
+export declare function recordPendingFirstTurnAlias(alias: string, fingerprint?: PendingFirstTurnFingerprint): void;
+export declare function consumePendingFirstTurnAlias(fingerprint?: PendingFirstTurnFingerprint): string | undefined;
+export declare function clearPendingFirstTurnAliases(): void;
 export declare function setSessionAlias(sessionId: string, alias: string, idleTimeoutMs: number): void;
 export declare function touchSession(sessionId: string): void;
 export declare function clearSession(sessionId: string): void;
