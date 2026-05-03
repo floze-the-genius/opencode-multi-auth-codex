@@ -2,6 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import * as crypto from 'node:crypto'
+import { withFileLock } from './file-lock.js'
 import { hasMeaningfulRateLimits } from './rate-limits.js'
 import type {
   AccountStore,
@@ -64,171 +65,6 @@ type AnyStoreFile = StoreFileV1 | StoreFileV2
 let storeLocked = false
 let lastStoreError: string | null = null
 let lastStoreEncrypted = false
-
-const STORE_LOCK_SUFFIX = '.lock'
-const STORE_LOCK_OWNER_FILE = 'owner.json'
-const DEFAULT_LOCK_STALE_MS = 5_000
-const DEFAULT_LOCK_WAIT_MS = 16_000
-const DEFAULT_LOCK_POLL_MS = 50
-
-type StoreLockMetadata = {
-  pid: number
-  hostname: string
-  createdAt: number
-  storeFile: string
-}
-
-function getEnvInt(name: string, fallback: number): number {
-  const raw = process.env[name]
-  if (!raw) return fallback
-  const parsed = Number(raw)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
-}
-
-function getLockStaleMs(): number {
-  return getEnvInt('OPENCODE_MULTI_AUTH_LOCK_STALE_MS', DEFAULT_LOCK_STALE_MS)
-}
-
-function getLockWaitMs(): number {
-  return getEnvInt('OPENCODE_MULTI_AUTH_LOCK_WAIT_MS', DEFAULT_LOCK_WAIT_MS)
-}
-
-function getLockPollMs(): number {
-  return getEnvInt('OPENCODE_MULTI_AUTH_LOCK_POLL_MS', DEFAULT_LOCK_POLL_MS)
-}
-
-function getStoreLockPath(): string {
-  return `${getStoreFile()}${STORE_LOCK_SUFFIX}`
-}
-
-function getStoreLockOwnerPath(): string {
-  return path.join(getStoreLockPath(), STORE_LOCK_OWNER_FILE)
-}
-
-function sleepSync(ms: number): void {
-  if (ms <= 0) return
-  const sab = new SharedArrayBuffer(4)
-  const view = new Int32Array(sab)
-  Atomics.wait(view, 0, 0, ms)
-}
-
-function readLockMetadata(): StoreLockMetadata | null {
-  const ownerPath = getStoreLockOwnerPath()
-  try {
-    const raw = fs.readFileSync(ownerPath, 'utf-8')
-    const parsed = JSON.parse(raw) as Partial<StoreLockMetadata>
-    if (
-      typeof parsed.pid !== 'number' ||
-      typeof parsed.hostname !== 'string' ||
-      typeof parsed.createdAt !== 'number' ||
-      typeof parsed.storeFile !== 'string'
-    ) {
-      return null
-    }
-    return {
-      pid: parsed.pid,
-      hostname: parsed.hostname,
-      createdAt: parsed.createdAt,
-      storeFile: parsed.storeFile
-    }
-  } catch {
-    return null
-  }
-}
-
-function getLockAgeMs(): number | null {
-  const meta = readLockMetadata()
-  if (meta) return Date.now() - meta.createdAt
-
-  try {
-    const stat = fs.statSync(getStoreLockPath())
-    return Date.now() - stat.mtimeMs
-  } catch {
-    return null
-  }
-}
-
-function removeStoreLock(): void {
-  try {
-    fs.rmSync(getStoreLockPath(), { recursive: true, force: true })
-  } catch {
-    // ignore
-  }
-}
-
-function acquireStoreLock(): () => void {
-  ensureDir()
-  const lockPath = getStoreLockPath()
-  const staleMs = getLockStaleMs()
-  const waitMs = getLockWaitMs()
-  const pollMs = getLockPollMs()
-  const deadline = Date.now() + waitMs
-
-  while (true) {
-    try {
-      fs.mkdirSync(lockPath, { mode: 0o700 })
-      const owner: StoreLockMetadata = {
-        pid: process.pid,
-        hostname: os.hostname(),
-        createdAt: Date.now(),
-        storeFile: getStoreFile()
-      }
-      fs.writeFileSync(getStoreLockOwnerPath(), JSON.stringify(owner, null, 2), {
-        mode: 0o600
-      })
-
-      const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP']
-      const signalHandlers: Partial<Record<NodeJS.Signals, () => void>> = {}
-      let released = false
-      const release = () => {
-        if (released) return
-        released = true
-        removeStoreLock()
-        process.off('exit', release)
-        for (const signal of signals) {
-          const handler = signalHandlers[signal]
-          if (handler) process.off(signal, handler)
-        }
-      }
-
-      for (const signal of signals) {
-        signalHandlers[signal] = () => {
-          release()
-          process.kill(process.pid, signal)
-        }
-      }
-
-      process.once('exit', release)
-      for (const signal of signals) {
-        process.once(signal, signalHandlers[signal]!)
-      }
-
-      return release
-    } catch (err: any) {
-      if (err?.code !== 'EEXIST') {
-        throw err
-      }
-
-      const ageMs = getLockAgeMs()
-      if (ageMs !== null && ageMs > staleMs) {
-        removeStoreLock()
-        continue
-      }
-
-      if (Date.now() >= deadline) {
-        const meta = readLockMetadata()
-        const suffix = meta
-          ? ` (owner pid=${meta.pid} host=${meta.hostname} age=${ageMs ?? 'unknown'}ms)`
-          : ''
-        throw new Error(`[multi-auth] Timed out waiting for store lock after ${waitMs}ms${suffix}`)
-      }
-
-      const remaining = deadline - Date.now()
-      const jitter = Math.min(pollMs, Math.max(1, remaining))
-      sleepSync(jitter)
-    }
-  }
-}
 
 function ensureDir(): void {
   const dir = getStoreDir()
@@ -648,21 +484,13 @@ function saveStoreUnlocked(store: AccountStore): void {
 }
 
 export function saveStore(store: AccountStore): void {
-  const release = acquireStoreLock()
-  try {
+  withFileLock(getStoreFile(), () => {
     saveStoreUnlocked(store)
-  } finally {
-    release()
-  }
+  })
 }
 
 function withStoreLock<T>(fn: () => T): T {
-  const release = acquireStoreLock()
-  try {
-    return fn()
-  } finally {
-    release()
-  }
+  return withFileLock(getStoreFile(), fn)
 }
 
 export function mutateStore<T>(fn: (store: AccountStore) => T): T {
