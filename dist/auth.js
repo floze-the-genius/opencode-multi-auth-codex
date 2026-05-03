@@ -2,7 +2,6 @@ import { createHash, randomBytes } from 'node:crypto';
 import * as http from 'http';
 import * as url from 'url';
 import { addAccount, updateAccount, loadStore } from './store.js';
-import { clearAuthInvalid } from './rotation.js';
 import { decodeJwtPayload, getAccountIdFromClaims, getEmailFromClaims, getExpiryFromClaims, getPlanTypeFromClaims } from './codex-auth.js';
 const OPENAI_ISSUER = 'https://auth.openai.com';
 const AUTHORIZE_URL = `${OPENAI_ISSUER}/oauth/authorize`;
@@ -256,10 +255,11 @@ export async function refreshToken(alias) {
                 account.accountId,
             planType: getPlanTypeFromClaims(idClaims) ||
                 getPlanTypeFromClaims(accessClaims) ||
-                account.planType
+                account.planType,
+            authInvalid: false,
+            authInvalidatedAt: undefined
         };
         const updatedStore = updateAccount(alias, updates);
-        clearAuthInvalid(alias);
         return updatedStore.accounts[alias];
     }
     catch (err) {

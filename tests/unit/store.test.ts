@@ -6,6 +6,7 @@ import {
   saveStore, 
   getStoreDiagnostics,
   withWriteLock,
+  getStorePath,
   addAccount,
   updateAccount,
   removeAccount
@@ -118,6 +119,30 @@ describe('Store Operations', () => {
 
     expect(fs.existsSync(lkgPath)).toBe(false)
     delete process.env.CODEX_SOFT_STORE_PASSPHRASE
+  })
+
+  it('should recover from a stale lock directory', () => {
+    const lockDir = `${getStorePath()}.lock`
+    fs.mkdirSync(lockDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(lockDir, 'owner.json'),
+      JSON.stringify({
+        pid: 999999,
+        hostname: 'stale-host',
+        createdAt: Date.now() - 10_000,
+        storeFile: getStorePath()
+      }, null, 2),
+      { mode: 0o600 }
+    )
+
+    const store = addAccount('stale-lock-alias', {
+      accessToken: 'test-access-token',
+      refreshToken: 'test-refresh-token',
+      expiresAt: Date.now() + 3600000
+    })
+
+    expect(store.accounts['stale-lock-alias']).toBeDefined()
+    expect(fs.existsSync(lockDir)).toBe(false)
   })
 })
 

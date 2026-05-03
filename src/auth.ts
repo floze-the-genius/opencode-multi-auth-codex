@@ -324,11 +324,12 @@ export async function refreshToken(alias: string): Promise<AccountCredentials | 
       planType:
         getPlanTypeFromClaims(idClaims) ||
         getPlanTypeFromClaims(accessClaims) ||
-        account.planType
+        account.planType,
+      authInvalid: false,
+      authInvalidatedAt: undefined
     }
 
     const updatedStore = updateAccount(alias, updates)
-    clearAuthInvalid(alias)
 
     return updatedStore.accounts[alias]
   } catch (err) {

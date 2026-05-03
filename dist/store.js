@@ -24,8 +24,150 @@ const CURRENT_STORE_VERSION = 2;
 let storeLocked = false;
 let lastStoreError = null;
 let lastStoreEncrypted = false;
-let writeLock = false;
-let writeLockQueue = [];
+const STORE_LOCK_SUFFIX = '.lock';
+const STORE_LOCK_OWNER_FILE = 'owner.json';
+const DEFAULT_LOCK_STALE_MS = 5_000;
+const DEFAULT_LOCK_WAIT_MS = 16_000;
+const DEFAULT_LOCK_POLL_MS = 50;
+function getEnvInt(name, fallback) {
+    const raw = process.env[name];
+    if (!raw)
+        return fallback;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+function getLockStaleMs() {
+    return getEnvInt('OPENCODE_MULTI_AUTH_LOCK_STALE_MS', DEFAULT_LOCK_STALE_MS);
+}
+function getLockWaitMs() {
+    return getEnvInt('OPENCODE_MULTI_AUTH_LOCK_WAIT_MS', DEFAULT_LOCK_WAIT_MS);
+}
+function getLockPollMs() {
+    return getEnvInt('OPENCODE_MULTI_AUTH_LOCK_POLL_MS', DEFAULT_LOCK_POLL_MS);
+}
+function getStoreLockPath() {
+    return `${getStoreFile()}${STORE_LOCK_SUFFIX}`;
+}
+function getStoreLockOwnerPath() {
+    return path.join(getStoreLockPath(), STORE_LOCK_OWNER_FILE);
+}
+function sleepSync(ms) {
+    if (ms <= 0)
+        return;
+    const sab = new SharedArrayBuffer(4);
+    const view = new Int32Array(sab);
+    Atomics.wait(view, 0, 0, ms);
+}
+function readLockMetadata() {
+    const ownerPath = getStoreLockOwnerPath();
+    try {
+        const raw = fs.readFileSync(ownerPath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (typeof parsed.pid !== 'number' ||
+            typeof parsed.hostname !== 'string' ||
+            typeof parsed.createdAt !== 'number' ||
+            typeof parsed.storeFile !== 'string') {
+            return null;
+        }
+        return {
+            pid: parsed.pid,
+            hostname: parsed.hostname,
+            createdAt: parsed.createdAt,
+            storeFile: parsed.storeFile
+        };
+    }
+    catch {
+        return null;
+    }
+}
+function getLockAgeMs() {
+    const meta = readLockMetadata();
+    if (meta)
+        return Date.now() - meta.createdAt;
+    try {
+        const stat = fs.statSync(getStoreLockPath());
+        return Date.now() - stat.mtimeMs;
+    }
+    catch {
+        return null;
+    }
+}
+function removeStoreLock() {
+    try {
+        fs.rmSync(getStoreLockPath(), { recursive: true, force: true });
+    }
+    catch {
+        // ignore
+    }
+}
+function acquireStoreLock() {
+    ensureDir();
+    const lockPath = getStoreLockPath();
+    const staleMs = getLockStaleMs();
+    const waitMs = getLockWaitMs();
+    const pollMs = getLockPollMs();
+    const deadline = Date.now() + waitMs;
+    while (true) {
+        try {
+            fs.mkdirSync(lockPath, { mode: 0o700 });
+            const owner = {
+                pid: process.pid,
+                hostname: os.hostname(),
+                createdAt: Date.now(),
+                storeFile: getStoreFile()
+            };
+            fs.writeFileSync(getStoreLockOwnerPath(), JSON.stringify(owner, null, 2), {
+                mode: 0o600
+            });
+            const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+            const signalHandlers = {};
+            let released = false;
+            const release = () => {
+                if (released)
+                    return;
+                released = true;
+                removeStoreLock();
+                process.off('exit', release);
+                for (const signal of signals) {
+                    const handler = signalHandlers[signal];
+                    if (handler)
+                        process.off(signal, handler);
+                }
+            };
+            for (const signal of signals) {
+                signalHandlers[signal] = () => {
+                    release();
+                    process.kill(process.pid, signal);
+                };
+            }
+            process.once('exit', release);
+            for (const signal of signals) {
+                process.once(signal, signalHandlers[signal]);
+            }
+            return release;
+        }
+        catch (err) {
+            if (err?.code !== 'EEXIST') {
+                throw err;
+            }
+            const ageMs = getLockAgeMs();
+            if (ageMs !== null && ageMs > staleMs) {
+                removeStoreLock();
+                continue;
+            }
+            if (Date.now() >= deadline) {
+                const meta = readLockMetadata();
+                const suffix = meta
+                    ? ` (owner pid=${meta.pid} host=${meta.hostname} age=${ageMs ?? 'unknown'}ms)`
+                    : '';
+                throw new Error(`[multi-auth] Timed out waiting for store lock after ${waitMs}ms${suffix}`);
+            }
+            const remaining = deadline - Date.now();
+            const jitter = Math.min(pollMs, Math.max(1, remaining));
+            sleepSync(jitter);
+        }
+    }
+}
 function ensureDir() {
     const dir = getStoreDir();
     if (!fs.existsSync(dir)) {
@@ -228,24 +370,6 @@ function loadLastKnownGood() {
         return null;
     }
 }
-async function acquireWriteLock() {
-    if (!writeLock) {
-        writeLock = true;
-        return;
-    }
-    return new Promise((resolve) => {
-        writeLockQueue.push(resolve);
-    });
-}
-function releaseWriteLock() {
-    const next = writeLockQueue.shift();
-    if (next) {
-        next();
-    }
-    else {
-        writeLock = false;
-    }
-}
 function buildSnapshot(window) {
     if (!window)
         return undefined;
@@ -351,7 +475,7 @@ export function loadStore() {
     }
     return emptyStore();
 }
-export function saveStore(store) {
+function saveStoreUnlocked(store) {
     ensureDir();
     if (storeLocked) {
         console.error('[multi-auth] Store locked; refusing to overwrite encrypted file.');
@@ -436,14 +560,34 @@ export function saveStore(store) {
     }
     saveLastKnownGood(store);
 }
-export async function withWriteLock(fn) {
-    await acquireWriteLock();
+export function saveStore(store) {
+    const release = acquireStoreLock();
+    try {
+        saveStoreUnlocked(store);
+    }
+    finally {
+        release();
+    }
+}
+function withStoreLock(fn) {
+    const release = acquireStoreLock();
     try {
         return fn();
     }
     finally {
-        releaseWriteLock();
+        release();
     }
+}
+export function mutateStore(fn) {
+    return withStoreLock(() => {
+        const store = loadStore();
+        const result = fn(store);
+        saveStoreUnlocked(store);
+        return result;
+    });
+}
+export async function withWriteLock(fn) {
+    return withStoreLock(fn);
 }
 export function getStoreDiagnostics() {
     return {
@@ -455,75 +599,75 @@ export function getStoreDiagnostics() {
     };
 }
 export function addAccount(alias, creds) {
-    const store = loadStore();
-    const entry = buildHistoryEntry(creds.rateLimits);
-    store.accounts[alias] = {
-        ...creds,
-        alias,
-        usageCount: 0,
-        rateLimitHistory: entry ? [entry] : creds.rateLimitHistory
-    };
-    if (!store.activeAlias) {
-        store.activeAlias = alias;
-    }
-    saveStore(store);
-    return store;
+    return mutateStore((store) => {
+        const entry = buildHistoryEntry(creds.rateLimits);
+        store.accounts[alias] = {
+            ...creds,
+            alias,
+            usageCount: 0,
+            rateLimitHistory: entry ? [entry] : creds.rateLimitHistory
+        };
+        if (!store.activeAlias) {
+            store.activeAlias = alias;
+        }
+        return store;
+    });
 }
 export function removeAccount(alias) {
-    const store = loadStore();
-    delete store.accounts[alias];
-    if (store.activeAlias === alias) {
-        const remaining = Object.keys(store.accounts);
-        store.activeAlias = remaining[0] || null;
-    }
-    saveStore(store);
-    return store;
+    return mutateStore((store) => {
+        delete store.accounts[alias];
+        if (store.activeAlias === alias) {
+            const remaining = Object.keys(store.accounts);
+            store.activeAlias = remaining[0] || null;
+        }
+        return store;
+    });
 }
 export function updateAccount(alias, updates) {
-    const store = loadStore();
-    if (store.accounts[alias]) {
-        const current = store.accounts[alias];
-        const next = { ...current, ...updates };
-        if (updates.rateLimits || next.rateLimits) {
-            const entry = buildHistoryEntry(next.rateLimits);
-            if (entry) {
-                next.rateLimitHistory = appendHistory(current.rateLimitHistory, entry);
+    return mutateStore((store) => {
+        if (store.accounts[alias]) {
+            const current = store.accounts[alias];
+            const next = { ...current, ...updates };
+            if (updates.rateLimits || next.rateLimits) {
+                const entry = buildHistoryEntry(next.rateLimits);
+                if (entry) {
+                    next.rateLimitHistory = appendHistory(current.rateLimitHistory, entry);
+                }
             }
+            store.accounts[alias] = next;
         }
-        store.accounts[alias] = next;
-        saveStore(store);
-    }
-    return store;
+        return store;
+    });
 }
 export function setActiveAlias(alias) {
-    const store = loadStore();
-    const now = Date.now();
-    const previousAlias = store.activeAlias;
-    if (alias === null) {
-        store.activeAlias = null;
-    }
-    else if (store.accounts[alias]) {
-        if (previousAlias && previousAlias !== alias && store.accounts[previousAlias]) {
-            store.accounts[previousAlias] = {
-                ...store.accounts[previousAlias],
-                lastActiveUntil: now
+    return mutateStore((store) => {
+        const now = Date.now();
+        const previousAlias = store.activeAlias;
+        if (alias === null) {
+            store.activeAlias = null;
+        }
+        else if (store.accounts[alias]) {
+            if (previousAlias && previousAlias !== alias && store.accounts[previousAlias]) {
+                store.accounts[previousAlias] = {
+                    ...store.accounts[previousAlias],
+                    lastActiveUntil: now
+                };
+            }
+            store.activeAlias = alias;
+            store.accounts[alias] = {
+                ...store.accounts[alias],
+                lastSeenAt: now,
+                lastActiveUntil: undefined
             };
+            const aliases = Object.keys(store.accounts);
+            const idx = aliases.indexOf(alias);
+            if (idx >= 0) {
+                store.rotationIndex = idx;
+            }
+            store.lastRotation = now;
         }
-        store.activeAlias = alias;
-        store.accounts[alias] = {
-            ...store.accounts[alias],
-            lastSeenAt: now,
-            lastActiveUntil: undefined
-        };
-        const aliases = Object.keys(store.accounts);
-        const idx = aliases.indexOf(alias);
-        if (idx >= 0) {
-            store.rotationIndex = idx;
-        }
-        store.lastRotation = now;
-    }
-    saveStore(store);
-    return store;
+        return store;
+    });
 }
 export function getActiveAccount() {
     const store = loadStore();
