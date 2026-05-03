@@ -1,5 +1,4 @@
 import type { Plugin, PluginInput } from '@opencode-ai/plugin'
-import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import { syncAuthFromOpenCode } from './auth-sync.js'
 import { createAuthorizationFlow, loginAccount } from './auth.js'
@@ -20,7 +19,6 @@ import {
 import { getDefaultModels } from './models.js'
 import { getForceState, isForceActive } from './force-mode.js'
 import { getRuntimeSettings } from './settings.js'
-import { recordPendingFirstTurnAlias, type PendingFirstTurnFingerprint } from './session-store.js'
 import { listAccounts, updateAccount, loadStore } from './store.js'
 import { DEFAULT_CONFIG, type AccountRateLimits, type PluginConfig } from './types.js'
 import { Errors, type DeterministicError } from './errors.js'
@@ -151,53 +149,6 @@ function filterInput(input: unknown): unknown {
       }
       return item
     })
-}
-
-function normalizeFingerprintText(text: string): string {
-  return text.replace(/\s+/g, ' ').trim()
-}
-
-function getFirstUserInputText(input: unknown): string | undefined {
-  if (!Array.isArray(input)) return undefined
-
-  for (const item of input) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
-    if (record.role !== 'user') continue
-
-    const content = record.content
-    if (!Array.isArray(content)) continue
-
-    const parts = content
-      .map((part) => {
-        if (!part || typeof part !== 'object') return ''
-        const contentPart = part as Record<string, unknown>
-        if (contentPart.type !== 'input_text' || typeof contentPart.text !== 'string') return ''
-        const text = contentPart.text.trim()
-        return text.startsWith('<system-reminder>') ? '' : text
-      })
-      .filter(Boolean)
-
-    const normalized = normalizeFingerprintText(parts.join(' '))
-    return normalized || undefined
-  }
-
-  return undefined
-}
-
-function buildFirstTurnFingerprint(
-  payload: Record<string, any>,
-  context: { model?: string; project?: string; directory?: string }
-): PendingFirstTurnFingerprint | undefined {
-  const userText = getFirstUserInputText(payload.input)
-  if (!userText) return undefined
-
-  return {
-    model: context.model || 'nomodel',
-    project: context.project,
-    directory: context.directory,
-    inputHash: createHash('sha256').update(userText).digest('hex')
-  }
 }
 
 function normalizeModel(model: string | undefined, debugEnabled?: boolean): string {
@@ -707,15 +658,16 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
           }
 
           const normalizedModel = normalizeModel(body.model, debugLogging)
-          const sessionAffinity = getRequestHeader(input, init, 'x-session-affinity')
-          const firstTurnFingerprint = buildFirstTurnFingerprint(
-            { ...body, model: normalizedModel },
-            {
-              model: typeof body.model === 'string' && body.model.trim() ? normalizedModel : undefined,
-              project: project?.id,
-              directory: directory || undefined
-            }
-          )
+          const sessionAffinity = getRequestHeader(input, init, 'x-session-affinity')?.trim() || undefined
+          const promptCacheKey = typeof body?.prompt_cache_key === 'string' && body.prompt_cache_key.trim()
+            ? body.prompt_cache_key.trim()
+            : undefined
+          const routeSessionId = sessionAffinity || promptCacheKey
+          const routeSessionSource = sessionAffinity
+            ? 'x-session-affinity'
+            : promptCacheKey
+              ? 'prompt_cache_key'
+              : 'none'
           if (debugLogging) {
 		  /*
             logDebugValue('[multi-auth] request.body', {
@@ -744,7 +696,7 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
 
           logDebug(`[multi-auth] routing start model=${normalizedModel} eligible=${eligibleCount} forcePinned=${forcePinned}`, debugLogging)
           logDebug(
-            `[multi-auth] session affinity=${sessionAffinity || 'none'} prompt_cache_key=${body?.prompt_cache_key || 'none'} firstConversation=${!body?.prompt_cache_key}`,
+            `[multi-auth] routeSessionSource=${routeSessionSource} routeSessionId=${routeSessionId || 'none'} backendCacheKey=${promptCacheKey || 'none'}`,
             debugLogging
           )
           
@@ -763,8 +715,7 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
 
             const rotation = await getNextAccount(effectiveConfig, {
               model: normalizedModel,
-              sessionId: body?.prompt_cache_key || undefined,
-              firstTurnFingerprint
+              sessionId: routeSessionId
             })
 
             if (!rotation) {
@@ -873,11 +824,6 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
               delete payload.reasoning_effort
 
               logDebugValue('[multi-auth] payload.after', payload, debugLogging)
-
-              if (!payload?.prompt_cache_key && (settings.settings.stickySessionRouting ?? true) && firstTurnFingerprint) {
-                recordPendingFirstTurnAlias(account.alias, firstTurnFingerprint)
-                logDebug(`[multi-auth] reserved first-turn route alias=${account.alias}`, debugLogging)
-              }
 
               try {
               const headers = new Headers(init?.headers || {})

@@ -2,12 +2,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import { getNextAccount } from '../../src/rotation.js'
-import {
-  clearPendingFirstTurnAliases,
-  clearSession,
-  recordPendingFirstTurnAlias,
-  type PendingFirstTurnFingerprint
-} from '../../src/session-store.js'
+import { clearSession } from '../../src/session-store.js'
 import { loadStore, saveStore } from '../../src/store.js'
 import { updateSettings } from '../../src/settings.js'
 import { DEFAULT_CONFIG, type AccountCredentials } from '../../src/types.js'
@@ -15,27 +10,6 @@ import { DEFAULT_CONFIG, type AccountCredentials } from '../../src/types.js'
 const TEST_DIR = path.join(os.tmpdir(), `oma-rotation-test-${Date.now()}`)
 const TEST_STORE_FILE = path.join(TEST_DIR, 'accounts.json')
 const originalEnv = process.env
-
-function clearPendingFirstTurns(): void {
-  clearPendingFirstTurnAliases()
-}
-
-const fingerprintA: PendingFirstTurnFingerprint = {
-  model: 'gpt-5.4',
-  project: 'project-1',
-  directory: '/repo',
-  inputHash: 'hash-a'
-}
-
-const fingerprintB: PendingFirstTurnFingerprint = {
-  ...fingerprintA,
-  inputHash: 'hash-b'
-}
-
-const fingerprintC: PendingFirstTurnFingerprint = {
-  ...fingerprintA,
-  inputHash: 'hash-c'
-}
 
 function createAccount(alias: string, usageCount: number): AccountCredentials {
   return {
@@ -68,11 +42,9 @@ describe('use-up strategy', () => {
       fs.rmSync(TEST_DIR, { recursive: true, force: true })
     }
     fs.mkdirSync(TEST_DIR, { recursive: true })
-    clearPendingFirstTurns()
   })
 
   afterEach(() => {
-    clearPendingFirstTurns()
     process.env = originalEnv
     if (fs.existsSync(TEST_DIR)) {
       fs.rmSync(TEST_DIR, { recursive: true, force: true })
@@ -194,13 +166,11 @@ describe('Rotation Strategy Runtime Behavior', () => {
       fs.rmSync(TEST_DIR, { recursive: true, force: true })
     }
     fs.mkdirSync(TEST_DIR, { recursive: true })
-    clearPendingFirstTurns()
   })
 
   afterEach(() => {
     clearSession('session-1')
     clearSession('session-2')
-    clearPendingFirstTurns()
     process.env = originalEnv
     if (fs.existsSync(TEST_DIR)) {
       fs.rmSync(TEST_DIR, { recursive: true, force: true })
@@ -247,7 +217,7 @@ describe('Rotation Strategy Runtime Behavior', () => {
     expect(rotation?.account.alias).toBe('beta')
   })
 
-  it('pins the first keyed session request to the account used before prompt_cache_key exists', async () => {
+  it('pins a session to the account selected for its first routed request', async () => {
     const store = loadStore()
     store.accounts.alpha = createAccount('alpha', 0)
     store.accounts.beta = createAccount('beta', 0)
@@ -255,16 +225,8 @@ describe('Rotation Strategy Runtime Behavior', () => {
 
     updateSettings({ rotationStrategy: 'round-robin', stickySessionRouting: true }, 'test')
 
-    const firstTurn = await getNextAccount(DEFAULT_CONFIG)
+    const firstTurn = await getNextAccount(DEFAULT_CONFIG, { sessionId: 'session-1' })
     expect(firstTurn?.account.alias).toBe('alpha')
-
-    recordPendingFirstTurnAlias(firstTurn!.account.alias, fingerprintA)
-
-    const firstKeyedTurn = await getNextAccount(DEFAULT_CONFIG, {
-      sessionId: 'session-1',
-      firstTurnFingerprint: fingerprintA
-    })
-    expect(firstKeyedTurn?.account.alias).toBe('alpha')
 
     const followUpTurn = await getNextAccount(DEFAULT_CONFIG, { sessionId: 'session-1' })
     expect(followUpTurn?.account.alias).toBe('alpha')
@@ -273,60 +235,23 @@ describe('Rotation Strategy Runtime Behavior', () => {
     expect(unrelatedTurn?.account.alias).toBe('beta')
   })
 
-  it('matches pending first-turn aliases by fingerprint when multiple starts are pending', async () => {
+  it('tracks independent sticky mappings for different route session IDs', async () => {
     const store = loadStore()
     store.accounts.alpha = createAccount('alpha', 0)
     store.accounts.beta = createAccount('beta', 0)
     saveStore(store)
 
     updateSettings({ rotationStrategy: 'round-robin', stickySessionRouting: true }, 'test')
-    recordPendingFirstTurnAlias('alpha', fingerprintA)
-    recordPendingFirstTurnAlias('beta', fingerprintB)
 
-    const firstKeyedTurn = await getNextAccount(DEFAULT_CONFIG, {
-      sessionId: 'session-1',
-      firstTurnFingerprint: fingerprintB
-    })
+    const sessionOne = await getNextAccount(DEFAULT_CONFIG, { sessionId: 'session-1' })
+    const sessionTwo = await getNextAccount(DEFAULT_CONFIG, { sessionId: 'session-2' })
+    const sessionOneAgain = await getNextAccount(DEFAULT_CONFIG, { sessionId: 'session-1' })
+    const sessionTwoAgain = await getNextAccount(DEFAULT_CONFIG, { sessionId: 'session-2' })
 
-    expect(firstKeyedTurn?.account.alias).toBe('beta')
-  })
-
-  it('keeps the latest alias for the same first-turn fingerprint', async () => {
-    const store = loadStore()
-    store.accounts.alpha = createAccount('alpha', 0)
-    store.accounts.beta = createAccount('beta', 0)
-    saveStore(store)
-
-    updateSettings({ rotationStrategy: 'round-robin', stickySessionRouting: true }, 'test')
-    recordPendingFirstTurnAlias('alpha', fingerprintA)
-    recordPendingFirstTurnAlias('beta', fingerprintA)
-
-    const firstKeyedTurn = await getNextAccount(DEFAULT_CONFIG, {
-      sessionId: 'session-1',
-      firstTurnFingerprint: fingerprintA
-    })
-
-    expect(firstKeyedTurn?.account.alias).toBe('beta')
-  })
-
-  it('does not guess from multiple pending aliases when no fingerprint matches', async () => {
-    const store = loadStore()
-    store.accounts.alpha = createAccount('alpha', 0)
-    store.accounts.beta = createAccount('beta', 0)
-    store.accounts.gamma = createAccount('gamma', 0)
-    store.rotationIndex = 2
-    saveStore(store)
-
-    updateSettings({ rotationStrategy: 'round-robin', stickySessionRouting: true }, 'test')
-    recordPendingFirstTurnAlias('alpha', fingerprintA)
-    recordPendingFirstTurnAlias('beta', fingerprintB)
-
-    const firstKeyedTurn = await getNextAccount(DEFAULT_CONFIG, {
-      sessionId: 'session-2',
-      firstTurnFingerprint: fingerprintC
-    })
-
-    expect(firstKeyedTurn?.account.alias).toBe('gamma')
+    expect(sessionOne?.account.alias).toBe('alpha')
+    expect(sessionTwo?.account.alias).toBe('beta')
+    expect(sessionOneAgain?.account.alias).toBe('alpha')
+    expect(sessionTwoAgain?.account.alias).toBe('beta')
   })
 
   it('prefers pro accounts first for non-spark models', async () => {

@@ -57,6 +57,8 @@ describe('Phase F: Settings + Weighted Rotation', () => {
       expect(result.settings.criticalThreshold).toBe(10)
       expect(result.settings.lowThreshold).toBe(30)
       expect(result.settings.accountWeights).toEqual({})
+      expect(result.settings.sessionIdleTimeoutMs).toBe(30 * 24 * 60 * 60 * 1000)
+      expect(result.settings.sessionStickyFallback).toBe('fail')
     })
 
     it('should persist settings to store', () => {
@@ -199,6 +201,23 @@ describe('Phase F: Settings + Weighted Rotation', () => {
       
       expect(result.success).toBe(true)
       expect(result.errors).toBeUndefined()
+    })
+
+    it('should reject invalid session sticky fallback', () => {
+      const result = updateSettings({
+        sessionStickyFallback: 'invalid' as RotationSettings['sessionStickyFallback']
+      }, 'test')
+
+      expect(result.success).toBe(false)
+      expect(result.errors?.some(e => e.field === 'sessionStickyFallback')).toBe(true)
+    })
+
+    it('should accept valid session sticky fallback values', () => {
+      const failResult = updateSettings({ sessionStickyFallback: 'fail' }, 'test')
+      expect(failResult.success).toBe(true)
+
+      const rotateResult = updateSettings({ sessionStickyFallback: 'rotate' }, 'test')
+      expect(rotateResult.success).toBe(true)
     })
   })
 

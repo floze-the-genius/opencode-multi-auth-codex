@@ -1006,10 +1006,19 @@ const HTML = `<!doctype html>
               </select>
               <span id="rotationStrategyHelpIcon" class="strategy-help" title="">?</span>
             </div>
+            <div class="force-strategy-inline">
+              <label for="sessionStickyFallbackSelect">Session fallback</label>
+              <select id="sessionStickyFallbackSelect" title="">
+                <option value="fail" title="Fail pinned sessions when their account is unavailable. Preserves account-scoped response state.">fail</option>
+                <option value="rotate" title="Move pinned sessions to another healthy account. Improves availability but may break account-scoped response state.">rotate</option>
+              </select>
+              <span id="sessionStickyFallbackHelpIcon" class="strategy-help" title="">?</span>
+            </div>
           </div>
         </div>
         <div id="forceStatus" class="notice"></div>
         <div id="rotationStrategyStatus" class="notice"></div>
+        <div id="sessionStickyFallbackStatus" class="notice"></div>
         <div id="useUpOrderSection" style="display:none;">
           <div class="use-up-header">Drain order — accounts are exhausted top-to-bottom</div>
           <ul class="use-up-list" id="useUpOrderList"></ul>
@@ -1154,6 +1163,9 @@ const HTML = `<!doctype html>
       const rotationStrategySelect = document.getElementById('rotationStrategySelect')
       const rotationStrategyStatus = document.getElementById('rotationStrategyStatus')
       const rotationStrategyHelpIcon = document.getElementById('rotationStrategyHelpIcon')
+      const sessionStickyFallbackSelect = document.getElementById('sessionStickyFallbackSelect')
+      const sessionStickyFallbackStatus = document.getElementById('sessionStickyFallbackStatus')
+      const sessionStickyFallbackHelpIcon = document.getElementById('sessionStickyFallbackHelpIcon')
       const useUpOrderSection = document.getElementById('useUpOrderSection')
       const useUpOrderList = document.getElementById('useUpOrderList')
       const useUpOrderStatus = document.getElementById('useUpOrderStatus')
@@ -1173,6 +1185,10 @@ const HTML = `<!doctype html>
       }
       const forceModeHelpText = 'Force mode pins all requests to one selected account for up to 24 hours. While force mode is on, rotation strategy is paused.'
       const forceAliasHelpText = 'Choose the account that force mode should pin.'
+      const sessionStickyFallbackHelp = {
+        fail: 'Pinned sessions fail when their account is unavailable. This preserves account-scoped response state and avoids silently breaking session continuity.',
+        rotate: 'Pinned sessions move to another healthy account when their account is unavailable. This improves availability but may break account-scoped response state.'
+      }
 
       function showToast(text) {
         toast.textContent = text
@@ -1291,6 +1307,22 @@ const HTML = `<!doctype html>
         }
         // Show/hide use-up order panel based on strategy
         renderUseUpOrderPanel(strategy, latestState?.accounts, latestState?.useUpOrder ?? [])
+      }
+
+      function renderSessionStickyFallback(value) {
+        const fallback = value === 'rotate' ? 'rotate' : 'fail'
+        const description = sessionStickyFallbackHelp[fallback]
+        if (sessionStickyFallbackSelect) {
+          sessionStickyFallbackSelect.value = fallback
+          sessionStickyFallbackSelect.title = description
+          sessionStickyFallbackSelect.disabled = false
+        }
+        if (sessionStickyFallbackHelpIcon) {
+          sessionStickyFallbackHelpIcon.title = description
+        }
+        if (sessionStickyFallbackStatus) {
+          sessionStickyFallbackStatus.textContent = 'Session fallback: ' + fallback + ' — ' + description
+        }
       }
 
       async function api(path, options) {
@@ -2411,6 +2443,8 @@ const HTML = `<!doctype html>
             rotationStrategySelect.disabled = false
             renderRotationStrategyHelp(strategy)
           }
+
+          renderSessionStickyFallback(latestState?.sessionStickyFallback || 'fail')
         } catch (err) {
           console.error('Failed to load force state:', err)
           if (forceStatus) {
@@ -2418,6 +2452,9 @@ const HTML = `<!doctype html>
           }
           if (rotationStrategyStatus) {
             rotationStrategyStatus.textContent = 'Failed to load strategy'
+          }
+          if (sessionStickyFallbackStatus) {
+            sessionStickyFallbackStatus.textContent = 'Failed to load session fallback setting'
           }
         }
       }
@@ -2497,6 +2534,31 @@ const HTML = `<!doctype html>
             showToast('Error: ' + err.message)
           } finally {
             rotationStrategySelect.disabled = false
+          }
+        })
+      }
+
+      if (sessionStickyFallbackSelect) {
+        sessionStickyFallbackSelect.addEventListener('change', async () => {
+          const previous = latestState?.sessionStickyFallback || 'fail'
+          const sessionStickyFallback = sessionStickyFallbackSelect.value === 'rotate' ? 'rotate' : 'fail'
+          renderSessionStickyFallback(sessionStickyFallback)
+          sessionStickyFallbackSelect.disabled = true
+          try {
+            await api('/api/settings', {
+              method: 'PUT',
+              body: JSON.stringify({
+                sessionStickyFallback,
+                actor: 'dashboard'
+              })
+            })
+            showToast('Session fallback set to ' + sessionStickyFallback)
+            await refreshState()
+          } catch (err) {
+            renderSessionStickyFallback(previous)
+            showToast('Error: ' + err.message)
+          } finally {
+            sessionStickyFallbackSelect.disabled = false
           }
         })
       }
@@ -3564,6 +3626,7 @@ export function startWebConsole(options?: { port?: number; host?: string }): htt
         debugPersisted: settings.settings.debug ?? false,
         debugEnvOverride: isDebugEnvOverrideActive(),
         rotationStrategy: runtimeSettings.settings.rotationStrategy,
+        sessionStickyFallback: runtimeSettings.settings.sessionStickyFallback,
         useUpOrder: runtimeSettings.settings.useUpOrder ?? [],
         force: {
           active: forceActive,
@@ -4095,6 +4158,9 @@ export function startWebConsole(options?: { port?: number; host?: string }): htt
       }
       if (Array.isArray(body.useUpOrder)) {
         updates.useUpOrder = (body.useUpOrder as unknown[]).filter((v): v is string => typeof v === 'string')
+      }
+      if (body.sessionStickyFallback === 'fail' || body.sessionStickyFallback === 'rotate') {
+        updates.sessionStickyFallback = body.sessionStickyFallback
       }
 
       // Phase G: Handle feature flags

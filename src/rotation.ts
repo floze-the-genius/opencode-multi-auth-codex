@@ -6,10 +6,8 @@ import { getRuntimeSettings, calculateWeightedSelection } from './settings.js'
 import {
   getSessionAlias,
   setSessionAlias,
-  consumePendingFirstTurnAlias,
   clearSession,
-  clearSessionsForAlias,
-  type PendingFirstTurnFingerprint
+  clearSessionsForAlias
 } from './session-store.js'
 import type { AccountCredentials, DEFAULT_CONFIG } from './types.js'
 import { logDebug } from './logger.js'
@@ -26,10 +24,9 @@ export interface RotationResult {
 
 export interface AccountSelectionContext {
   model?: string
-  /** Stable identifier for this conversation (prompt_cache_key). When set and
-   *  stickySessionRouting is enabled the same account is reused for all turns. */
+  /** Stable identifier for this conversation. When set and stickySessionRouting
+   *  is enabled the same account is reused for all turns. */
   sessionId?: string
-  firstTurnFingerprint?: PendingFirstTurnFingerprint
 }
 
 const HEALTH_HYSTERESIS_MS = 10_000
@@ -266,7 +263,7 @@ export async function getNextAccount(
         }
 
         // Pinned account is unhealthy.
-        const fallback = sessionSettings.sessionStickyFallback ?? 'rotate'
+        const fallback = sessionSettings.sessionStickyFallback ?? 'fail'
         if (fallback === 'fail') {
           console.warn(
             `[multi-auth] Session ${sessionId}: pinned account ${pinnedAlias} is unavailable and sessionStickyFallback=fail`
@@ -283,45 +280,8 @@ export async function getNextAccount(
         // Account was deleted; clean up stale mapping.
         clearSession(sessionId)
       }
-    } else {
-      const pendingAlias = consumePendingFirstTurnAlias(selection?.firstTurnFingerprint)
-
-      if (pendingAlias) {
-        const pendingAccount = store.accounts[pendingAlias]
-        const pendingHealth = pendingAccount ? evaluateAccountHealth(pendingAccount, now) : null
-
-        if (pendingAccount && pendingHealth?.isHealthy) {
-          const token = await ensureValidToken(pendingAlias)
-          if (token) {
-            store = updateAccount(pendingAlias, {
-              usageCount: (pendingAccount.usageCount || 0) + 1,
-              lastUsed: now,
-              limitError: undefined
-            })
-            store.activeAlias = pendingAlias
-            store.lastRotation = now
-            saveStore(store)
-            setSessionAlias(sessionId, pendingAlias, idleTimeoutMs)
-
-            logDebug(`[multi-auth] Session ${sessionId}: pinned to first-turn account ${pendingAlias}`)
-
-            const currentForceState = getForceState()
-            return {
-              account: store.accounts[pendingAlias],
-              token,
-              forceState: {
-                active: isForceActive(),
-                alias: currentForceState.forcedAlias,
-                remainingMs: currentForceState.forcedUntil ? currentForceState.forcedUntil - now : 0
-              }
-            }
-          }
-        }
-
-        logDebug(`[multi-auth] Session ${sessionId}: first-turn account ${pendingAlias} unavailable; falling back to rotation`)
-      }
     }
-    // No existing mapping and no usable first-turn handoff → fall through; after selection we'll record one.
+    // No existing mapping → fall through; after selection we'll record one.
   }
   // --- End sticky session routing ---
 

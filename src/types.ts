@@ -193,11 +193,11 @@ export interface RotationSettings {
 
   // Session-based sticky routing: pin each conversation to the account that handled its first request
   stickySessionRouting: boolean        // default: true
-  sessionIdleTimeoutMs: number         // evict session mapping after this much idle time (default: 3_600_000)
+  sessionIdleTimeoutMs: number         // evict session mapping after this much idle time (default: 30 days)
   // What to do when the pinned account is unavailable mid-session:
   //   'rotate' – pick the next healthy account (session continues, thinking context resets)
   //   'fail'   – return an error so the caller can decide (safest for context preservation)
-  sessionStickyFallback: 'rotate' | 'fail'  // default: 'rotate'
+  sessionStickyFallback: 'rotate' | 'fail'  // default: 'fail'
 
   // Drain order for use-up strategy (ordered list of aliases)
   useUpOrder?: string[]
@@ -242,8 +242,8 @@ export const DEFAULT_ROTATION_SETTINGS: RotationSettings = {
   lowThreshold: 30,
   accountWeights: {},
   stickySessionRouting: true,
-  sessionIdleTimeoutMs: 60 * 60 * 1000, // 1 hour
-  sessionStickyFallback: 'rotate',
+  sessionIdleTimeoutMs: 30 * 24 * 60 * 60 * 1000, // 30 days
+  sessionStickyFallback: 'fail',
   featureFlags: { ...DEFAULT_FEATURE_FLAGS }
 }
 
@@ -338,6 +338,18 @@ export function validateSettings(settings: Partial<RotationSettings>): SettingsV
         constraint: 'sum(weights) ≈ 1.0'
       })
     }
+  }
+
+  if (
+    settings.sessionStickyFallback !== undefined &&
+    settings.sessionStickyFallback !== 'rotate' &&
+    settings.sessionStickyFallback !== 'fail'
+  ) {
+    errors.push({
+      field: 'sessionStickyFallback',
+      message: 'Session sticky fallback must be rotate or fail',
+      constraint: "sessionStickyFallback in ['rotate', 'fail']"
+    })
   }
   
   return errors

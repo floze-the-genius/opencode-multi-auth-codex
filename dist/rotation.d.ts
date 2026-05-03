@@ -1,4 +1,3 @@
-import { type PendingFirstTurnFingerprint } from './session-store.js';
 import type { AccountCredentials, DEFAULT_CONFIG } from './types.js';
 export interface RotationResult {
     account: AccountCredentials;
@@ -11,10 +10,9 @@ export interface RotationResult {
 }
 export interface AccountSelectionContext {
     model?: string;
-    /** Stable identifier for this conversation (prompt_cache_key). When set and
-     *  stickySessionRouting is enabled the same account is reused for all turns. */
+    /** Stable identifier for this conversation. When set and stickySessionRouting
+     *  is enabled the same account is reused for all turns. */
     sessionId?: string;
-    firstTurnFingerprint?: PendingFirstTurnFingerprint;
 }
 export declare function getNextAccount(config: typeof DEFAULT_CONFIG, selection?: AccountSelectionContext): Promise<RotationResult | null>;
 export declare function markRateLimited(alias: string, rateLimitedUntil: number): void;
