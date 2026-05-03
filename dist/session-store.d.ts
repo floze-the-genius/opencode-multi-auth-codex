@@ -1,13 +1,7 @@
 /**
- * In-memory map from session ID → account alias for sticky session routing.
- *
- * Each Codex conversation is keyed by OpenCode's `x-session-affinity` header
- * when available, with `prompt_cache_key` as a fallback. Pinning every request
- * in a session to the same account keeps account-scoped response state valid
- * across turns.
- *
- * The map lives in memory only – a process restart clears it, which is fine
- * because the upstream context window would also be gone.
+ * Disk-backed map from session ID -> account alias for sticky session routing.
+ * The in-memory Map is a cache; sessions.json is the source of truth across
+ * concurrent OpenCode/plugin processes.
  */
 export interface SessionEntry {
     alias: string;
@@ -27,4 +21,5 @@ export declare function listSessions(): Array<SessionEntry & {
 export declare function sessionCount(): number;
 /** Count active sessions per account alias. */
 export declare function sessionCountByAlias(): Record<string, number>;
+export declare function getSessionStorePath(): string;
 //# sourceMappingURL=session-store.d.ts.map
