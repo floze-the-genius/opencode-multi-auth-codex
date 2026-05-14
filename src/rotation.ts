@@ -163,6 +163,51 @@ function shouldTrySoftRateLimitedAccount(
   )
 }
 
+function debugAccountFiltering(
+  accounts: Record<string, AccountCredentials>,
+  aliases: string[],
+  now: number,
+  creditAccountAliases: string[] | undefined
+): void {
+  if (process.env.OPENCODE_MULTI_AUTH_DEBUG !== '1') return
+
+  const creditPolicy = Array.isArray(creditAccountAliases)
+    ? creditAccountAliases.join(',')
+    : '<all>'
+  console.warn(`[multi-auth] Account filter debug: creditPolicy=${creditPolicy}`)
+
+  for (const alias of aliases) {
+    const acc = accounts[alias]
+    if (!acc) continue
+
+    const allowedCredits = hasUsableAllowedCredits(acc, creditAccountAliases)
+    const blockers: string[] = []
+    if (acc.enabled === false) blockers.push('disabled')
+    if (acc.authInvalid) blockers.push('authInvalid')
+    if (acc.rateLimitedUntil && acc.rateLimitedUntil > now && !allowedCredits) {
+      blockers.push(`rateLimitedUntil=${new Date(acc.rateLimitedUntil).toISOString()}`)
+    }
+    if (acc.modelUnsupportedUntil && acc.modelUnsupportedUntil > now) {
+      blockers.push(`modelUnsupportedUntil=${new Date(acc.modelUnsupportedUntil).toISOString()}`)
+    }
+    if (acc.workspaceDeactivatedUntil && acc.workspaceDeactivatedUntil > now) {
+      blockers.push(`workspaceDeactivatedUntil=${new Date(acc.workspaceDeactivatedUntil).toISOString()}`)
+    }
+
+    console.warn(
+      `[multi-auth] Account filter debug: alias=${alias} ` +
+      `creditsAllowed=${isCreditsAllowedForAlias(alias, creditAccountAliases)} ` +
+      `hasUsableAllowedCredits=${allowedCredits} ` +
+      `credits=${acc.credits ? JSON.stringify({
+        hasCredits: acc.credits.hasCredits,
+        unlimited: acc.credits.unlimited,
+        balance: acc.credits.balance ?? null
+      }) : 'null'} ` +
+      `blockers=${blockers.length > 0 ? blockers.join('|') : 'none'}`
+    )
+  }
+}
+
 async function refreshUsageForRateLimitedAccounts(
   aliases: string[],
   now: number,
@@ -181,7 +226,12 @@ async function refreshUsageForRateLimitedAccounts(
     const usage = await fetchUsageRateLimitsForAccount(account, {
       creditsAllowed: isCreditsAllowedForAlias(account.alias, creditAccountAliases)
     })
-    if (!usage.rateLimits && !usage.credits) continue
+    if (!usage.rateLimits && !usage.credits) {
+      if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
+        console.warn(`[multi-auth] Usage refresh debug: alias=${alias} error=${usage.error || 'no limits or credits returned'}`)
+      }
+      continue
+    }
 
     const updates: Partial<AccountCredentials> = {
       limitStatus: 'success',
@@ -292,6 +342,7 @@ export async function getNextAccount(
   })
 
   if (availableAliases.length === 0) {
+    debugAccountFiltering(store.accounts, aliases, now, creditAccountAliases)
     await refreshUsageForRateLimitedAccounts(aliases, now, creditAccountAliases)
     store = loadStore()
     healthMap.clear()
@@ -305,6 +356,7 @@ export async function getNextAccount(
     })
 
     if (availableAliases.length === 0) {
+      debugAccountFiltering(store.accounts, aliases, Date.now(), creditAccountAliases)
       const softRateLimitedAliases = aliases.filter(alias => {
         const acc = store.accounts[alias]
         return acc ? shouldTrySoftRateLimitedAccount(acc, Date.now(), creditAccountAliases) : false
