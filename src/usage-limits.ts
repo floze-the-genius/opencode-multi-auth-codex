@@ -1,5 +1,6 @@
 import { getBlockingRateLimitResetAt, hasMeaningfulRateLimits } from './rate-limits.js'
-import type { AccountCredentials, AccountRateLimits, RateLimitWindow } from './types.js'
+import { hasUsableCredits } from './types.js'
+import type { AccountCredentials, AccountCredits, AccountRateLimits, RateLimitWindow } from './types.js'
 
 const DEFAULT_USAGE_BASE_URL = 'https://chatgpt.com/backend-api'
 const USAGE_BASE_URL_ENV = 'OPENCODE_MULTI_AUTH_USAGE_BASE_URL'
@@ -38,6 +39,7 @@ interface UsagePayload {
 export interface UsageRateLimitFetchResult {
   rateLimits?: AccountRateLimits
   planType?: string
+  credits?: AccountCredits
   rateLimitedUntil?: number
   error?: string
   shouldProbeFallback?: boolean
@@ -94,6 +96,34 @@ function pickRateLimitDetails(payload: UsagePayload): UsageRateLimitDetails | nu
   if (preferred?.rate_limit) return preferred.rate_limit
 
   return additional.find((entry) => entry.rate_limit)?.rate_limit || null
+}
+
+function mapCredits(
+  credits: UsagePayload['credits'],
+  now: number
+): AccountCredits | undefined {
+  if (!credits || typeof credits !== 'object') return undefined
+
+  const hasCredits = typeof credits.has_credits === 'boolean'
+    ? credits.has_credits
+    : undefined
+  const unlimited = typeof credits.unlimited === 'boolean'
+    ? credits.unlimited
+    : undefined
+  const balance = typeof credits.balance === 'string' || credits.balance === null
+    ? credits.balance
+    : undefined
+
+  if (hasCredits === undefined && unlimited === undefined && balance === undefined) {
+    return undefined
+  }
+
+  return {
+    hasCredits,
+    unlimited,
+    balance,
+    updatedAt: now
+  }
 }
 
 function parseUsageFailure(rawText: string): { code?: string; message?: string } {
@@ -247,12 +277,21 @@ export async function fetchUsageRateLimitsForAccount(
 
   const now = Date.now()
   const details = pickRateLimitDetails(payload)
+  const credits = mapCredits(payload.credits, now)
   const rateLimits: AccountRateLimits = {
     fiveHour: mapWindow(details?.primary_window, now),
     weekly: mapWindow(details?.secondary_window, now)
   }
 
   if (!hasMeaningfulRateLimits(rateLimits)) {
+    if (hasUsableCredits(credits)) {
+      return {
+        source: 'usage-api',
+        planType: payload.plan_type,
+        credits
+      }
+    }
+
     return {
       source: 'usage-api',
       planType: payload.plan_type,
@@ -261,12 +300,15 @@ export async function fetchUsageRateLimitsForAccount(
   }
 
   const rateLimitedUntil = details?.limit_reached || details?.allowed === false
-    ? getBlockingRateLimitResetAt(rateLimits, now)
+    ? hasUsableCredits(credits)
+      ? undefined
+      : getBlockingRateLimitResetAt(rateLimits, now)
     : undefined
 
   return {
     source: 'usage-api',
     planType: payload.plan_type,
+    credits,
     rateLimits,
     rateLimitedUntil
   }

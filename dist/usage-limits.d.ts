@@ -1,7 +1,8 @@
-import type { AccountCredentials, AccountRateLimits } from './types.js';
+import type { AccountCredentials, AccountCredits, AccountRateLimits } from './types.js';
 export interface UsageRateLimitFetchResult {
     rateLimits?: AccountRateLimits;
     planType?: string;
+    credits?: AccountCredits;
     rateLimitedUntil?: number;
     error?: string;
     shouldProbeFallback?: boolean;

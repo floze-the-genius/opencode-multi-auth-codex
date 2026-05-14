@@ -9,6 +9,7 @@ import { DEFAULT_CONFIG, type AccountCredentials } from '../../src/types.js'
 const TEST_DIR = path.join(os.tmpdir(), `oma-rotation-test-${Date.now()}`)
 const TEST_STORE_FILE = path.join(TEST_DIR, 'accounts.json')
 const originalEnv = process.env
+const originalFetch = global.fetch
 
 function createAccount(alias: string, usageCount: number): AccountCredentials {
   return {
@@ -46,6 +47,7 @@ describe('Rotation Strategy Runtime Behavior', () => {
   })
 
   afterEach(() => {
+    global.fetch = originalFetch
     process.env = originalEnv
     if (fs.existsSync(TEST_DIR)) {
       fs.rmSync(TEST_DIR, { recursive: true, force: true })
@@ -140,5 +142,83 @@ describe('Rotation Strategy Runtime Behavior', () => {
     )
 
     expect(rotation).toBeNull()
+  })
+
+  it('keeps accounts with credits eligible after included limits are exhausted', async () => {
+    const store = loadStore()
+    store.accounts.noCredits = {
+      ...createAccount('noCredits', 0),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000
+    }
+    store.accounts.withCredits = {
+      ...createAccount('withCredits', 10),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000,
+      credits: {
+        hasCredits: true,
+        unlimited: false,
+        balance: '5.00',
+        updatedAt: Date.now()
+      }
+    }
+    saveStore(store)
+
+    const rotation = await getNextAccount(
+      {
+        ...DEFAULT_CONFIG,
+        rotationStrategy: 'least-used'
+      },
+      { model: 'gpt-5.4' }
+    )
+
+    expect(rotation?.account.alias).toBe('withCredits')
+  })
+
+  it('refreshes usage once when all accounts are blocked and credits were added later', async () => {
+    process.env.OPENCODE_MULTI_AUTH_USAGE_BASE_URL = 'https://example.test/backend-api'
+    global.fetch = (async (_url, init) => {
+      const auth = new Headers(init?.headers).get('Authorization') || ''
+      const hasCredits = auth.includes('token-withCredits')
+      return new Response(JSON.stringify({
+        plan_type: 'pro',
+        credits: {
+          has_credits: hasCredits,
+          unlimited: false,
+          balance: hasCredits ? '5.00' : '0.00'
+        },
+        rate_limit: {
+          allowed: false,
+          limit_reached: true,
+          primary_window: { used_percent: 100, reset_after_seconds: 60 },
+          secondary_window: { used_percent: 100, reset_after_seconds: 120 }
+        }
+      }), { status: 200 })
+    }) as typeof fetch
+
+    const store = loadStore()
+    store.accounts.noCredits = {
+      ...createAccount('noCredits', 0),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000
+    }
+    store.accounts.withCredits = {
+      ...createAccount('withCredits', 10),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000
+    }
+    saveStore(store)
+
+    const rotation = await getNextAccount(
+      {
+        ...DEFAULT_CONFIG,
+        rotationStrategy: 'least-used'
+      },
+      { model: 'gpt-5.4' }
+    )
+
+    const reloaded = loadStore()
+    expect(rotation?.account.alias).toBe('withCredits')
+    expect(reloaded.accounts.withCredits.credits).toEqual(expect.objectContaining({
+      hasCredits: true,
+      balance: '5.00'
+    }))
+    expect(reloaded.accounts.withCredits.rateLimitedUntil).toBeUndefined()
   })
 })

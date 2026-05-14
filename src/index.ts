@@ -20,7 +20,7 @@ import { getDefaultModels } from './models.js'
 import { getForceState, isForceActive } from './force-mode.js'
 import { getRuntimeSettings } from './settings.js'
 import { listAccounts, updateAccount, loadStore } from './store.js'
-import { DEFAULT_CONFIG, type AccountRateLimits, type PluginConfig } from './types.js'
+import { DEFAULT_CONFIG, hasUsableCredits, type AccountRateLimits, type PluginConfig } from './types.js'
 import { Errors, type DeterministicError } from './errors.js'
 
 const PROVIDER_ID = 'openai'
@@ -638,7 +638,7 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
           const forcePinned = isForceActive() && !!forceState.forcedAlias
           const eligibleCount = Object.values(store.accounts).filter(acc => {
             const now = Date.now()
-            return (!acc.rateLimitedUntil || acc.rateLimitedUntil < now) &&
+            return (!acc.rateLimitedUntil || acc.rateLimitedUntil < now || hasUsableCredits(acc.credits)) &&
                    (!acc.modelUnsupportedUntil || acc.modelUnsupportedUntil < now) &&
                    (!acc.workspaceDeactivatedUntil || acc.workspaceDeactivatedUntil < now) &&
                    !acc.authInvalid &&

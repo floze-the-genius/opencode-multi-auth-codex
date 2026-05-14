@@ -9,22 +9,25 @@ export async function refreshRateLimitsForAccount(account) {
     updateAccount(account.alias, { limitStatus: 'running', limitError: undefined });
     logInfo(`Refreshing limits for ${account.alias}`);
     const usage = await fetchUsageRateLimitsForAccount(account);
-    if (usage.rateLimits) {
+    if (usage.rateLimits || usage.credits) {
         const now = Date.now();
         const updates = {
-            rateLimits: mergeRateLimits(account.rateLimits, usage.rateLimits),
             limitStatus: 'success',
             limitError: undefined,
             lastLimitProbeAt: now,
             limitsConfidence: calculateLimitsConfidence(now, account.lastLimitErrorAt, 'success'),
+            rateLimitedUntil: usage.rateLimitedUntil,
             authInvalid: false,
             authInvalidatedAt: undefined
         };
+        if (usage.rateLimits) {
+            updates.rateLimits = mergeRateLimits(account.rateLimits, usage.rateLimits);
+        }
+        if (usage.credits) {
+            updates.credits = usage.credits;
+        }
         if (usage.planType) {
             updates.planType = usage.planType;
-        }
-        if (typeof usage.rateLimitedUntil === 'number' && usage.rateLimitedUntil > now) {
-            updates.rateLimitedUntil = usage.rateLimitedUntil;
         }
         updateAccount(account.alias, updates);
         logInfo(`Limits refreshed for ${account.alias} via usage API`);

@@ -35,6 +35,7 @@ export interface AccountCredentials {
   disabledBy?: string
   disableReason?: string
   rateLimits?: AccountRateLimits
+  credits?: AccountCredits
   rateLimitHistory?: RateLimitHistoryEntry[]
   limitStatus?: LimitStatus
   limitError?: string
@@ -57,6 +58,31 @@ export interface RateLimitWindow {
 export interface AccountRateLimits {
   fiveHour?: RateLimitWindow
   weekly?: RateLimitWindow
+}
+
+export interface AccountCredits {
+  hasCredits?: boolean
+  unlimited?: boolean
+  balance?: string | null
+  updatedAt?: number
+}
+
+function parseCreditBalance(balance: string | null | undefined): number | undefined {
+  if (typeof balance !== 'string') return undefined
+  const match = balance.replace(/,/g, '.').match(/-?\d+(?:\.\d+)?/)
+  if (!match) return undefined
+  const parsed = Number(match[0])
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+export function hasUsableCredits(credits: AccountCredits | undefined | null): boolean {
+  if (!credits) return false
+  if (credits.unlimited === true) return true
+  if (credits.hasCredits === true) return true
+  if (credits.hasCredits === false) return false
+
+  const balance = parseCreditBalance(credits.balance)
+  return typeof balance === 'number' && balance > 0
 }
 
 export interface RateLimitSnapshot {

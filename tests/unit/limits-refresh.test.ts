@@ -140,4 +140,41 @@ describe('refreshRateLimitsForAccount', () => {
     )
     expect(result).toEqual({ alias: 'dead-token', updated: true })
   })
+
+  it('stores credits and clears stale rate limits after successful usage refresh', async () => {
+    fetchUsageRateLimitsForAccount.mockResolvedValue({
+      source: 'usage-api',
+      rateLimits: {
+        fiveHour: { remaining: 0, resetAt: Date.now() + 60_000 },
+        weekly: { remaining: 0, resetAt: Date.now() + 120_000 }
+      },
+      credits: {
+        hasCredits: true,
+        unlimited: false,
+        balance: '5.00',
+        updatedAt: Date.now()
+      },
+      planType: 'pro',
+      rateLimitedUntil: undefined
+    })
+
+    const result = await refreshRateLimitsForAccount({
+      ...baseAccount,
+      rateLimitedUntil: Date.now() + 3600_000
+    })
+
+    expect(probeRateLimitsForAccount).not.toHaveBeenCalled()
+    expect(updateAccount).toHaveBeenLastCalledWith(
+      'dead-token',
+      expect.objectContaining({
+        limitStatus: 'success',
+        credits: expect.objectContaining({
+          hasCredits: true,
+          balance: '5.00'
+        }),
+        rateLimitedUntil: undefined
+      })
+    )
+    expect(result).toEqual({ alias: 'dead-token', updated: true })
+  })
 })

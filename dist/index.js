@@ -7,7 +7,7 @@ import { getDefaultModels } from './models.js';
 import { getForceState, isForceActive } from './force-mode.js';
 import { getRuntimeSettings } from './settings.js';
 import { listAccounts, updateAccount, loadStore } from './store.js';
-import { DEFAULT_CONFIG } from './types.js';
+import { DEFAULT_CONFIG, hasUsableCredits } from './types.js';
 import { Errors } from './errors.js';
 const PROVIDER_ID = 'openai';
 const CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
@@ -547,7 +547,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                     const forcePinned = isForceActive() && !!forceState.forcedAlias;
                     const eligibleCount = Object.values(store.accounts).filter(acc => {
                         const now = Date.now();
-                        return (!acc.rateLimitedUntil || acc.rateLimitedUntil < now) &&
+                        return (!acc.rateLimitedUntil || acc.rateLimitedUntil < now || hasUsableCredits(acc.credits)) &&
                             (!acc.modelUnsupportedUntil || acc.modelUnsupportedUntil < now) &&
                             (!acc.workspaceDeactivatedUntil || acc.workspaceDeactivatedUntil < now) &&
                             !acc.authInvalid &&

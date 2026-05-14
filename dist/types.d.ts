@@ -29,6 +29,7 @@ export interface AccountCredentials {
     disabledBy?: string;
     disableReason?: string;
     rateLimits?: AccountRateLimits;
+    credits?: AccountCredits;
     rateLimitHistory?: RateLimitHistoryEntry[];
     limitStatus?: LimitStatus;
     limitError?: string;
@@ -49,6 +50,13 @@ export interface AccountRateLimits {
     fiveHour?: RateLimitWindow;
     weekly?: RateLimitWindow;
 }
+export interface AccountCredits {
+    hasCredits?: boolean;
+    unlimited?: boolean;
+    balance?: string | null;
+    updatedAt?: number;
+}
+export declare function hasUsableCredits(credits: AccountCredits | undefined | null): boolean;
 export interface RateLimitSnapshot {
     remaining?: number;
     limit?: number;

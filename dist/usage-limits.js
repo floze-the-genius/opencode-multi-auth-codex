@@ -1,4 +1,5 @@
 import { getBlockingRateLimitResetAt, hasMeaningfulRateLimits } from './rate-limits.js';
+import { hasUsableCredits } from './types.js';
 const DEFAULT_USAGE_BASE_URL = 'https://chatgpt.com/backend-api';
 const USAGE_BASE_URL_ENV = 'OPENCODE_MULTI_AUTH_USAGE_BASE_URL';
 function getUsageBaseUrl() {
@@ -37,6 +38,28 @@ function pickRateLimitDetails(payload) {
     if (preferred?.rate_limit)
         return preferred.rate_limit;
     return additional.find((entry) => entry.rate_limit)?.rate_limit || null;
+}
+function mapCredits(credits, now) {
+    if (!credits || typeof credits !== 'object')
+        return undefined;
+    const hasCredits = typeof credits.has_credits === 'boolean'
+        ? credits.has_credits
+        : undefined;
+    const unlimited = typeof credits.unlimited === 'boolean'
+        ? credits.unlimited
+        : undefined;
+    const balance = typeof credits.balance === 'string' || credits.balance === null
+        ? credits.balance
+        : undefined;
+    if (hasCredits === undefined && unlimited === undefined && balance === undefined) {
+        return undefined;
+    }
+    return {
+        hasCredits,
+        unlimited,
+        balance,
+        updatedAt: now
+    };
 }
 function parseUsageFailure(rawText) {
     const trimmed = rawText.trim();
@@ -166,11 +189,19 @@ export async function fetchUsageRateLimitsForAccount(account) {
     }
     const now = Date.now();
     const details = pickRateLimitDetails(payload);
+    const credits = mapCredits(payload.credits, now);
     const rateLimits = {
         fiveHour: mapWindow(details?.primary_window, now),
         weekly: mapWindow(details?.secondary_window, now)
     };
     if (!hasMeaningfulRateLimits(rateLimits)) {
+        if (hasUsableCredits(credits)) {
+            return {
+                source: 'usage-api',
+                planType: payload.plan_type,
+                credits
+            };
+        }
         return {
             source: 'usage-api',
             planType: payload.plan_type,
@@ -178,11 +209,14 @@ export async function fetchUsageRateLimitsForAccount(account) {
         };
     }
     const rateLimitedUntil = details?.limit_reached || details?.allowed === false
-        ? getBlockingRateLimitResetAt(rateLimits, now)
+        ? hasUsableCredits(credits)
+            ? undefined
+            : getBlockingRateLimitResetAt(rateLimits, now)
         : undefined;
     return {
         source: 'usage-api',
         planType: payload.plan_type,
+        credits,
         rateLimits,
         rateLimitedUntil
     };

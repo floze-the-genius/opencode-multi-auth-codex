@@ -3,6 +3,9 @@ import { ensureValidToken } from './auth.js';
 import { decodeJwtPayload, getPlanTypeFromClaims } from './codex-auth.js';
 import { isForceActive, checkAndAutoClearForce, getForceState, clearForce } from './force-mode.js';
 import { getRuntimeSettings, calculateWeightedSelection } from './settings.js';
+import { mergeRateLimits } from './rate-limits.js';
+import { fetchUsageRateLimitsForAccount } from './usage-limits.js';
+import { hasUsableCredits } from './types.js';
 const HEALTH_HYSTERESIS_MS = 10_000;
 const RECENT_FAILURE_WINDOW_MS = 60_000;
 function shuffled(input) {
@@ -52,12 +55,14 @@ function getPreferredPools(store, availableAliases, selection) {
     };
 }
 function evaluateAccountHealth(acc, now) {
-    const wasRateLimited = !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now - HEALTH_HYSTERESIS_MS);
+    const hasCredits = hasUsableCredits(acc.credits);
+    const isRateLimited = !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now);
+    const wasRateLimited = !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now - HEALTH_HYSTERESIS_MS && !hasCredits);
     const wasModelUnsupported = !!(acc.modelUnsupportedUntil && acc.modelUnsupportedUntil > now - HEALTH_HYSTERESIS_MS);
     const wasWorkspaceDeactivated = !!(acc.workspaceDeactivatedUntil && acc.workspaceDeactivatedUntil > now - HEALTH_HYSTERESIS_MS);
     // Phase D: Check if account is disabled
     const isDisabled = acc.enabled === false;
-    const currentlyBlocked = !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now) ||
+    const currentlyBlocked = (isRateLimited && !hasCredits) ||
         !!(acc.modelUnsupportedUntil && acc.modelUnsupportedUntil > now) ||
         !!(acc.workspaceDeactivatedUntil && acc.workspaceDeactivatedUntil > now) ||
         !!acc.authInvalid ||
@@ -89,6 +94,46 @@ function evaluateAccountHealth(acc, now) {
         recentFailures,
         priority
     };
+}
+function shouldRefreshRateLimitState(acc, now) {
+    return (!!(acc.rateLimitedUntil && acc.rateLimitedUntil > now) &&
+        !hasUsableCredits(acc.credits) &&
+        !acc.authInvalid &&
+        acc.enabled !== false &&
+        !(acc.modelUnsupportedUntil && acc.modelUnsupportedUntil > now) &&
+        !(acc.workspaceDeactivatedUntil && acc.workspaceDeactivatedUntil > now));
+}
+async function refreshUsageForRateLimitedAccounts(aliases, now) {
+    for (const alias of aliases) {
+        let account = loadStore().accounts[alias];
+        if (!account || !shouldRefreshRateLimitState(account, now))
+            continue;
+        const token = await ensureValidToken(alias);
+        if (!token)
+            continue;
+        account = loadStore().accounts[alias];
+        if (!account || !shouldRefreshRateLimitState(account, now))
+            continue;
+        const usage = await fetchUsageRateLimitsForAccount(account);
+        if (!usage.rateLimits && !usage.credits)
+            continue;
+        const updates = {
+            limitStatus: 'success',
+            limitError: undefined,
+            lastLimitProbeAt: Date.now(),
+            rateLimitedUntil: usage.rateLimitedUntil
+        };
+        if (usage.rateLimits) {
+            updates.rateLimits = mergeRateLimits(account.rateLimits, usage.rateLimits);
+        }
+        if (usage.credits) {
+            updates.credits = usage.credits;
+        }
+        if (usage.planType) {
+            updates.planType = usage.planType;
+        }
+        updateAccount(alias, updates);
+    }
 }
 export async function getNextAccount(config, selection) {
     // Phase E: Check and auto-clear expired/invalid force state
@@ -160,13 +205,27 @@ export async function getNextAccount(config, selection) {
         const acc = store.accounts[alias];
         healthMap.set(alias, evaluateAccountHealth(acc, now));
     }
-    const availableAliases = aliases.filter(alias => {
+    let availableAliases = aliases.filter(alias => {
         const health = healthMap.get(alias);
         return health?.isHealthy === true;
     });
     if (availableAliases.length === 0) {
-        console.warn('[multi-auth] No available accounts (rate-limited or invalidated).');
-        return null;
+        await refreshUsageForRateLimitedAccounts(aliases, now);
+        store = loadStore();
+        healthMap.clear();
+        for (const alias of aliases) {
+            const acc = store.accounts[alias];
+            if (acc)
+                healthMap.set(alias, evaluateAccountHealth(acc, Date.now()));
+        }
+        availableAliases = aliases.filter(alias => {
+            const health = healthMap.get(alias);
+            return health?.isHealthy === true;
+        });
+        if (availableAliases.length === 0) {
+            console.warn('[multi-auth] No available accounts (rate-limited or invalidated).');
+            return null;
+        }
     }
     const tokenFailureCooldownMs = (() => {
         const raw = process.env.OPENCODE_MULTI_AUTH_TOKEN_FAILURE_COOLDOWN_MS;
@@ -308,7 +367,8 @@ export function markRateLimited(alias, rateLimitedUntil) {
     const safeUntil = Math.max(rateLimitedUntil, now + 1000);
     const seconds = Math.max(1, Math.ceil((safeUntil - now) / 1000));
     updateAccount(alias, {
-        rateLimitedUntil: safeUntil
+        rateLimitedUntil: safeUntil,
+        credits: undefined
     });
     console.warn(`[multi-auth] Account ${alias} marked rate-limited for ${seconds}s`);
 }
