@@ -106,6 +106,10 @@ function shouldTrySoftRateLimitedAccount(acc, now, creditAccountAliases = getCre
         !(acc.modelUnsupportedUntil && acc.modelUnsupportedUntil > now) &&
         !(acc.workspaceDeactivatedUntil && acc.workspaceDeactivatedUntil > now));
 }
+function isUsingPaidCredits(acc, now, creditAccountAliases) {
+    return !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now) &&
+        hasUsableAllowedCredits(acc, creditAccountAliases);
+}
 function debugAccountFiltering(accounts, aliases, now, creditAccountAliases) {
     if (process.env.OPENCODE_MULTI_AUTH_DEBUG !== '1')
         return;
@@ -379,10 +383,30 @@ export async function getNextAccount(config, selection) {
             }
         }
     };
-    const { primaryAliases, fallbackAliases } = getPreferredPools(store, availableAliases, selection);
-    const primary = buildCandidates(primaryAliases);
-    const fallback = fallbackAliases.length > 0 ? buildCandidates(fallbackAliases) : { aliases: [] };
-    const candidates = [...primary.aliases, ...fallback.aliases];
+    const includedLimitAliases = availableAliases.filter(alias => {
+        const acc = store.accounts[alias];
+        return acc ? !isUsingPaidCredits(acc, Date.now(), creditAccountAliases) : false;
+    });
+    const paidCreditAliases = availableAliases.filter(alias => {
+        const acc = store.accounts[alias];
+        return acc ? isUsingPaidCredits(acc, Date.now(), creditAccountAliases) : false;
+    });
+    const buildCandidateGroups = (candidateAliases) => {
+        if (candidateAliases.length === 0)
+            return [];
+        const { primaryAliases, fallbackAliases } = getPreferredPools(store, candidateAliases, selection);
+        const groups = [];
+        if (primaryAliases.length > 0)
+            groups.push(buildCandidates(primaryAliases));
+        if (fallbackAliases.length > 0)
+            groups.push(buildCandidates(fallbackAliases));
+        return groups;
+    };
+    const candidateGroups = [
+        ...buildCandidateGroups(includedLimitAliases),
+        ...buildCandidateGroups(paidCreditAliases)
+    ];
+    const candidates = candidateGroups.flatMap(group => group.aliases);
     for (const candidate of candidates) {
         const token = await ensureValidToken(candidate);
         if (!token) {
@@ -400,7 +424,7 @@ export async function getNextAccount(config, selection) {
         });
         store.activeAlias = candidate;
         store.lastRotation = now;
-        const nextIndex = primary.aliases.includes(candidate) ? primary.nextIndex : fallback.nextIndex;
+        const nextIndex = candidateGroups.find(group => group.aliases.includes(candidate))?.nextIndex;
         if (nextIndex) {
             store.rotationIndex = nextIndex(candidate);
         }

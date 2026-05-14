@@ -174,6 +174,33 @@ describe('Rotation Strategy Runtime Behavior', () => {
     expect(rotation?.account.alias).toBe('withCredits')
   })
 
+  it('uses included limit accounts before paid credit accounts', async () => {
+    const store = loadStore()
+    store.accounts.includedLimit = {
+      ...createAccount('includedLimit', 20)
+    }
+    store.accounts.paidCredits = {
+      ...createAccount('paidCredits', 0),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000,
+      credits: {
+        hasCredits: true,
+        balance: '5.00',
+        updatedAt: Date.now()
+      }
+    }
+    saveStore(store)
+
+    const rotation = await getNextAccount(
+      {
+        ...DEFAULT_CONFIG,
+        rotationStrategy: 'least-used'
+      },
+      { model: 'gpt-5.4' }
+    )
+
+    expect(rotation?.account.alias).toBe('includedLimit')
+  })
+
   it('only keeps accounts with credits eligible when their alias is allowed', async () => {
     process.env.OPENCODE_MULTI_AUTH_CREDIT_ACCOUNT_ALIASES = 'personal'
 
