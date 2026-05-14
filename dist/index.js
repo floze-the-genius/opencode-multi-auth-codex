@@ -7,7 +7,8 @@ import { getDefaultModels } from './models.js';
 import { getForceState, isForceActive } from './force-mode.js';
 import { getRuntimeSettings } from './settings.js';
 import { listAccounts, updateAccount, loadStore } from './store.js';
-import { DEFAULT_CONFIG, hasUsableCredits } from './types.js';
+import { DEFAULT_CONFIG } from './types.js';
+import { getCreditAccountAliases, hasUsableAllowedCredits, isCreditsAllowedForAlias } from './credits-policy.js';
 import { Errors } from './errors.js';
 const PROVIDER_ID = 'openai';
 const CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
@@ -545,14 +546,26 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                     const store = loadStore();
                     const forceState = getForceState();
                     const forcePinned = isForceActive() && !!forceState.forcedAlias;
-                    const eligibleCount = Object.values(store.accounts).filter(acc => {
+                    const accountsForAttempts = Object.values(store.accounts);
+                    const creditAccountAliases = getCreditAccountAliases();
+                    const normalEligibleCount = accountsForAttempts.filter(acc => {
                         const now = Date.now();
-                        return (!acc.rateLimitedUntil || acc.rateLimitedUntil < now || hasUsableCredits(acc.credits)) &&
+                        return (!acc.rateLimitedUntil || acc.rateLimitedUntil < now || hasUsableAllowedCredits(acc, creditAccountAliases)) &&
                             (!acc.modelUnsupportedUntil || acc.modelUnsupportedUntil < now) &&
                             (!acc.workspaceDeactivatedUntil || acc.workspaceDeactivatedUntil < now) &&
                             !acc.authInvalid &&
                             acc.enabled !== false;
                     }).length;
+                    const softRateLimitedCount = accountsForAttempts.filter(acc => {
+                        const now = Date.now();
+                        return !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now) &&
+                            isCreditsAllowedForAlias(acc.alias, creditAccountAliases) &&
+                            (!acc.modelUnsupportedUntil || acc.modelUnsupportedUntil < now) &&
+                            (!acc.workspaceDeactivatedUntil || acc.workspaceDeactivatedUntil < now) &&
+                            !acc.authInvalid &&
+                            acc.enabled !== false;
+                    }).length;
+                    const eligibleCount = normalEligibleCount > 0 ? normalEligibleCount : softRateLimitedCount;
                     const maxAttempts = forcePinned ? 1 : Math.max(1, eligibleCount);
                     const triedAliases = new Set();
                     let attempt = 0;

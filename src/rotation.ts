@@ -5,7 +5,7 @@ import { isForceActive, checkAndAutoClearForce, getForceState, clearForce } from
 import { getRuntimeSettings, calculateWeightedSelection } from './settings.js'
 import { mergeRateLimits } from './rate-limits.js'
 import { fetchUsageRateLimitsForAccount } from './usage-limits.js'
-import { hasUsableCredits } from './types.js'
+import { getCreditAccountAliases, hasUsableAllowedCredits, isCreditsAllowedForAlias } from './credits-policy.js'
 import type { AccountCredentials, DEFAULT_CONFIG } from './types.js'
 
 export interface RotationResult {
@@ -92,8 +92,12 @@ interface AccountHealth {
   priority: number
 }
 
-function evaluateAccountHealth(acc: AccountCredentials, now: number): AccountHealth {
-  const hasCredits = hasUsableCredits(acc.credits)
+function evaluateAccountHealth(
+  acc: AccountCredentials,
+  now: number,
+  creditAccountAliases: string[] | undefined = getCreditAccountAliases()
+): AccountHealth {
+  const hasCredits = hasUsableAllowedCredits(acc, creditAccountAliases)
   const isRateLimited: boolean = !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now)
   const wasRateLimited: boolean = !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now - HEALTH_HYSTERESIS_MS && !hasCredits)
   const wasModelUnsupported: boolean = !!(acc.modelUnsupportedUntil && acc.modelUnsupportedUntil > now - HEALTH_HYSTERESIS_MS)
@@ -136,10 +140,22 @@ function evaluateAccountHealth(acc: AccountCredentials, now: number): AccountHea
   }
 }
 
-function shouldRefreshRateLimitState(acc: AccountCredentials, now: number): boolean {
+function shouldRefreshRateLimitState(
+  acc: AccountCredentials,
+  now: number,
+  creditAccountAliases: string[] | undefined = getCreditAccountAliases()
+): boolean {
+  return shouldTrySoftRateLimitedAccount(acc, now, creditAccountAliases) && !hasUsableAllowedCredits(acc, creditAccountAliases)
+}
+
+function shouldTrySoftRateLimitedAccount(
+  acc: AccountCredentials,
+  now: number,
+  creditAccountAliases: string[] | undefined = getCreditAccountAliases()
+): boolean {
   return (
     !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now) &&
-    !hasUsableCredits(acc.credits) &&
+    isCreditsAllowedForAlias(acc.alias, creditAccountAliases) &&
     !acc.authInvalid &&
     acc.enabled !== false &&
     !(acc.modelUnsupportedUntil && acc.modelUnsupportedUntil > now) &&
@@ -149,19 +165,22 @@ function shouldRefreshRateLimitState(acc: AccountCredentials, now: number): bool
 
 async function refreshUsageForRateLimitedAccounts(
   aliases: string[],
-  now: number
+  now: number,
+  creditAccountAliases: string[] | undefined
 ): Promise<void> {
   for (const alias of aliases) {
     let account = loadStore().accounts[alias]
-    if (!account || !shouldRefreshRateLimitState(account, now)) continue
+    if (!account || !shouldRefreshRateLimitState(account, now, creditAccountAliases)) continue
 
     const token = await ensureValidToken(alias)
     if (!token) continue
 
     account = loadStore().accounts[alias]
-    if (!account || !shouldRefreshRateLimitState(account, now)) continue
+    if (!account || !shouldRefreshRateLimitState(account, now, creditAccountAliases)) continue
 
-    const usage = await fetchUsageRateLimitsForAccount(account)
+    const usage = await fetchUsageRateLimitsForAccount(account, {
+      creditsAllowed: isCreditsAllowedForAlias(account.alias, creditAccountAliases)
+    })
     if (!usage.rateLimits && !usage.credits) continue
 
     const updates: Partial<AccountCredentials> = {
@@ -213,6 +232,7 @@ export async function getNextAccount(
   }
 
   const now = Date.now()
+  const creditAccountAliases = getCreditAccountAliases()
   
   // Phase E: If force mode is active, never fall back to another alias.
   if (forceActive && forceState.forcedAlias) {
@@ -220,7 +240,7 @@ export async function getNextAccount(
     const forcedAccount = store.accounts[forcedAlias]
     
     if (forcedAccount) {
-      const health = evaluateAccountHealth(forcedAccount, now)
+      const health = evaluateAccountHealth(forcedAccount, now, creditAccountAliases)
       
       if (health.isHealthy) {
         const token = await ensureValidToken(forcedAlias)
@@ -263,7 +283,7 @@ export async function getNextAccount(
   const healthMap = new Map<string, AccountHealth>()
   for (const alias of aliases) {
     const acc = store.accounts[alias]
-    healthMap.set(alias, evaluateAccountHealth(acc, now))
+    healthMap.set(alias, evaluateAccountHealth(acc, now, creditAccountAliases))
   }
 
   let availableAliases = aliases.filter(alias => {
@@ -272,12 +292,12 @@ export async function getNextAccount(
   })
 
   if (availableAliases.length === 0) {
-    await refreshUsageForRateLimitedAccounts(aliases, now)
+    await refreshUsageForRateLimitedAccounts(aliases, now, creditAccountAliases)
     store = loadStore()
     healthMap.clear()
     for (const alias of aliases) {
       const acc = store.accounts[alias]
-      if (acc) healthMap.set(alias, evaluateAccountHealth(acc, Date.now()))
+      if (acc) healthMap.set(alias, evaluateAccountHealth(acc, Date.now(), creditAccountAliases))
     }
     availableAliases = aliases.filter(alias => {
       const health = healthMap.get(alias)
@@ -285,8 +305,18 @@ export async function getNextAccount(
     })
 
     if (availableAliases.length === 0) {
-      console.warn('[multi-auth] No available accounts (rate-limited or invalidated).')
-      return null
+      const softRateLimitedAliases = aliases.filter(alias => {
+        const acc = store.accounts[alias]
+        return acc ? shouldTrySoftRateLimitedAccount(acc, Date.now(), creditAccountAliases) : false
+      })
+
+      if (softRateLimitedAliases.length === 0) {
+        console.warn('[multi-auth] No available accounts (rate-limited or invalidated).')
+        return null
+      }
+
+      console.warn('[multi-auth] All accounts are marked rate-limited; trying soft-limited accounts in case credits are available.')
+      availableAliases = softRateLimitedAliases
     }
   }
 

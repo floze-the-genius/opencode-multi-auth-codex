@@ -5,7 +5,7 @@ import { isForceActive, checkAndAutoClearForce, getForceState, clearForce } from
 import { getRuntimeSettings, calculateWeightedSelection } from './settings.js';
 import { mergeRateLimits } from './rate-limits.js';
 import { fetchUsageRateLimitsForAccount } from './usage-limits.js';
-import { hasUsableCredits } from './types.js';
+import { getCreditAccountAliases, hasUsableAllowedCredits, isCreditsAllowedForAlias } from './credits-policy.js';
 const HEALTH_HYSTERESIS_MS = 10_000;
 const RECENT_FAILURE_WINDOW_MS = 60_000;
 function shuffled(input) {
@@ -54,8 +54,8 @@ function getPreferredPools(store, availableAliases, selection) {
         fallbackAliases: []
     };
 }
-function evaluateAccountHealth(acc, now) {
-    const hasCredits = hasUsableCredits(acc.credits);
+function evaluateAccountHealth(acc, now, creditAccountAliases = getCreditAccountAliases()) {
+    const hasCredits = hasUsableAllowedCredits(acc, creditAccountAliases);
     const isRateLimited = !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now);
     const wasRateLimited = !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now - HEALTH_HYSTERESIS_MS && !hasCredits);
     const wasModelUnsupported = !!(acc.modelUnsupportedUntil && acc.modelUnsupportedUntil > now - HEALTH_HYSTERESIS_MS);
@@ -95,26 +95,31 @@ function evaluateAccountHealth(acc, now) {
         priority
     };
 }
-function shouldRefreshRateLimitState(acc, now) {
+function shouldRefreshRateLimitState(acc, now, creditAccountAliases = getCreditAccountAliases()) {
+    return shouldTrySoftRateLimitedAccount(acc, now, creditAccountAliases) && !hasUsableAllowedCredits(acc, creditAccountAliases);
+}
+function shouldTrySoftRateLimitedAccount(acc, now, creditAccountAliases = getCreditAccountAliases()) {
     return (!!(acc.rateLimitedUntil && acc.rateLimitedUntil > now) &&
-        !hasUsableCredits(acc.credits) &&
+        isCreditsAllowedForAlias(acc.alias, creditAccountAliases) &&
         !acc.authInvalid &&
         acc.enabled !== false &&
         !(acc.modelUnsupportedUntil && acc.modelUnsupportedUntil > now) &&
         !(acc.workspaceDeactivatedUntil && acc.workspaceDeactivatedUntil > now));
 }
-async function refreshUsageForRateLimitedAccounts(aliases, now) {
+async function refreshUsageForRateLimitedAccounts(aliases, now, creditAccountAliases) {
     for (const alias of aliases) {
         let account = loadStore().accounts[alias];
-        if (!account || !shouldRefreshRateLimitState(account, now))
+        if (!account || !shouldRefreshRateLimitState(account, now, creditAccountAliases))
             continue;
         const token = await ensureValidToken(alias);
         if (!token)
             continue;
         account = loadStore().accounts[alias];
-        if (!account || !shouldRefreshRateLimitState(account, now))
+        if (!account || !shouldRefreshRateLimitState(account, now, creditAccountAliases))
             continue;
-        const usage = await fetchUsageRateLimitsForAccount(account);
+        const usage = await fetchUsageRateLimitsForAccount(account, {
+            creditsAllowed: isCreditsAllowedForAlias(account.alias, creditAccountAliases)
+        });
         if (!usage.rateLimits && !usage.credits)
             continue;
         const updates = {
@@ -156,12 +161,13 @@ export async function getNextAccount(config, selection) {
         return null;
     }
     const now = Date.now();
+    const creditAccountAliases = getCreditAccountAliases();
     // Phase E: If force mode is active, never fall back to another alias.
     if (forceActive && forceState.forcedAlias) {
         const forcedAlias = forceState.forcedAlias;
         const forcedAccount = store.accounts[forcedAlias];
         if (forcedAccount) {
-            const health = evaluateAccountHealth(forcedAccount, now);
+            const health = evaluateAccountHealth(forcedAccount, now, creditAccountAliases);
             if (health.isHealthy) {
                 const token = await ensureValidToken(forcedAlias);
                 if (token) {
@@ -203,28 +209,36 @@ export async function getNextAccount(config, selection) {
     const healthMap = new Map();
     for (const alias of aliases) {
         const acc = store.accounts[alias];
-        healthMap.set(alias, evaluateAccountHealth(acc, now));
+        healthMap.set(alias, evaluateAccountHealth(acc, now, creditAccountAliases));
     }
     let availableAliases = aliases.filter(alias => {
         const health = healthMap.get(alias);
         return health?.isHealthy === true;
     });
     if (availableAliases.length === 0) {
-        await refreshUsageForRateLimitedAccounts(aliases, now);
+        await refreshUsageForRateLimitedAccounts(aliases, now, creditAccountAliases);
         store = loadStore();
         healthMap.clear();
         for (const alias of aliases) {
             const acc = store.accounts[alias];
             if (acc)
-                healthMap.set(alias, evaluateAccountHealth(acc, Date.now()));
+                healthMap.set(alias, evaluateAccountHealth(acc, Date.now(), creditAccountAliases));
         }
         availableAliases = aliases.filter(alias => {
             const health = healthMap.get(alias);
             return health?.isHealthy === true;
         });
         if (availableAliases.length === 0) {
-            console.warn('[multi-auth] No available accounts (rate-limited or invalidated).');
-            return null;
+            const softRateLimitedAliases = aliases.filter(alias => {
+                const acc = store.accounts[alias];
+                return acc ? shouldTrySoftRateLimitedAccount(acc, Date.now(), creditAccountAliases) : false;
+            });
+            if (softRateLimitedAliases.length === 0) {
+                console.warn('[multi-auth] No available accounts (rate-limited or invalidated).');
+                return null;
+            }
+            console.warn('[multi-auth] All accounts are marked rate-limited; trying soft-limited accounts in case credits are available.');
+            availableAliases = softRateLimitedAliases;
         }
     }
     const tokenFailureCooldownMs = (() => {

@@ -49,6 +49,10 @@ export interface UsageRateLimitFetchResult {
   source: 'usage-api'
 }
 
+export interface UsageRateLimitFetchOptions {
+  creditsAllowed?: boolean
+}
+
 interface UsageApiFailureClassification {
   shouldProbeFallback: boolean
   authInvalid?: boolean
@@ -195,7 +199,8 @@ export function classifyUsageApiFailure(
 }
 
 export async function fetchUsageRateLimitsForAccount(
-  account: AccountCredentials
+  account: AccountCredentials,
+  options: UsageRateLimitFetchOptions = {}
 ): Promise<UsageRateLimitFetchResult> {
   const token = account.accessToken?.trim()
   if (!token) {
@@ -283,8 +288,10 @@ export async function fetchUsageRateLimitsForAccount(
     weekly: mapWindow(details?.secondary_window, now)
   }
 
+  const creditsAllowed = options.creditsAllowed !== false
+
   if (!hasMeaningfulRateLimits(rateLimits)) {
-    if (hasUsableCredits(credits)) {
+    if (creditsAllowed && hasUsableCredits(credits)) {
       return {
         source: 'usage-api',
         planType: payload.plan_type,
@@ -300,7 +307,7 @@ export async function fetchUsageRateLimitsForAccount(
   }
 
   const rateLimitedUntil = details?.limit_reached || details?.allowed === false
-    ? hasUsableCredits(credits)
+    ? creditsAllowed && hasUsableCredits(credits)
       ? undefined
       : getBlockingRateLimitResetAt(rateLimits, now)
     : undefined

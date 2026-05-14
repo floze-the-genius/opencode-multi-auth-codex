@@ -11,6 +11,9 @@ export interface UsageRateLimitFetchResult {
     workspaceDeactivatedReason?: string;
     source: 'usage-api';
 }
+export interface UsageRateLimitFetchOptions {
+    creditsAllowed?: boolean;
+}
 interface UsageApiFailureClassification {
     shouldProbeFallback: boolean;
     authInvalid?: boolean;
@@ -18,6 +21,6 @@ interface UsageApiFailureClassification {
     workspaceDeactivatedReason?: string;
 }
 export declare function classifyUsageApiFailure(status: number, rawText: string): UsageApiFailureClassification;
-export declare function fetchUsageRateLimitsForAccount(account: AccountCredentials): Promise<UsageRateLimitFetchResult>;
+export declare function fetchUsageRateLimitsForAccount(account: AccountCredentials, options?: UsageRateLimitFetchOptions): Promise<UsageRateLimitFetchResult>;
 export {};
 //# sourceMappingURL=usage-limits.d.ts.map

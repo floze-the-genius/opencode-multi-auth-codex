@@ -8,6 +8,7 @@ import {
   type WeightPreset,
   type SettingsValidationError
 } from './types.js'
+import { parseCreditAccountAliases } from './credits-policy.js'
 
 // Phase F: Settings precedence: defaults -> persisted -> runtime -> env
 
@@ -57,6 +58,13 @@ function resolveSettings(includeEnvOverrides: boolean): SettingsResult {
         settings.lowThreshold = parsed
         source = 'env'
       }
+    }
+
+    if (process.env.OPENCODE_MULTI_AUTH_CREDIT_ACCOUNT_ALIASES !== undefined) {
+      settings.creditAccountAliases = parseCreditAccountAliases(
+        process.env.OPENCODE_MULTI_AUTH_CREDIT_ACCOUNT_ALIASES
+      )
+      source = 'env'
     }
     
     // Phase G: Feature flag environment overrides

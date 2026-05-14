@@ -96,6 +96,7 @@ export interface PluginConfig {
     modelUnsupportedCooldownMs: number;
     workspaceDeactivatedCooldownMs: number;
     modelFilter: RegExp;
+    creditAccountAliases?: string[];
 }
 export interface ProviderModel {
     name: string;
@@ -123,6 +124,7 @@ export interface RotationSettings {
     criticalThreshold: number;
     lowThreshold: number;
     accountWeights: Record<string, number>;
+    creditAccountAliases?: string[];
     featureFlags?: FeatureFlags;
     updatedAt?: number;
     updatedBy?: string;

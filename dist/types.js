@@ -146,6 +146,27 @@ export function validateSettings(settings) {
             });
         }
     }
+    if (settings.creditAccountAliases !== undefined) {
+        if (!Array.isArray(settings.creditAccountAliases)) {
+            errors.push({
+                field: 'creditAccountAliases',
+                message: 'Credit account aliases must be an array of account aliases',
+                constraint: 'creditAccountAliases must be string[]'
+            });
+        }
+        else {
+            for (const alias of settings.creditAccountAliases) {
+                if (typeof alias !== 'string' || !alias.trim()) {
+                    errors.push({
+                        field: 'creditAccountAliases',
+                        message: 'Credit account aliases must contain non-empty strings',
+                        constraint: 'every alias must be a non-empty string'
+                    });
+                    break;
+                }
+            }
+        }
+    }
     return errors;
 }
 //# sourceMappingURL=types.js.map

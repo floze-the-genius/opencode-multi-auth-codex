@@ -5,10 +5,13 @@ import { probeRateLimitsForAccount } from './probe-limits.js';
 import { logError, logInfo } from './logger.js';
 import { DEFAULT_CONFIG, calculateLimitsConfidence } from './types.js';
 import { fetchUsageRateLimitsForAccount } from './usage-limits.js';
+import { isCreditsAllowedForAlias } from './credits-policy.js';
 export async function refreshRateLimitsForAccount(account) {
     updateAccount(account.alias, { limitStatus: 'running', limitError: undefined });
     logInfo(`Refreshing limits for ${account.alias}`);
-    const usage = await fetchUsageRateLimitsForAccount(account);
+    const usage = await fetchUsageRateLimitsForAccount(account, {
+        creditsAllowed: isCreditsAllowedForAlias(account.alias)
+    });
     if (usage.rateLimits || usage.credits) {
         const now = Date.now();
         const updates = {

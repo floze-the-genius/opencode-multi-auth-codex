@@ -4,7 +4,7 @@ import type { AccountCredentials } from '../../src/types.js'
 const updateAccount = jest.fn()
 const loadStore = jest.fn()
 const probeRateLimitsForAccount = jest.fn<() => Promise<any>>()
-const fetchUsageRateLimitsForAccount = jest.fn<() => Promise<any>>()
+const fetchUsageRateLimitsForAccount = jest.fn<(...args: any[]) => Promise<any>>()
 const logError = jest.fn()
 const logInfo = jest.fn()
 const markAuthInvalid = jest.fn()
@@ -176,5 +176,30 @@ describe('refreshRateLimitsForAccount', () => {
       })
     )
     expect(result).toEqual({ alias: 'dead-token', updated: true })
+  })
+
+  it('passes credit policy to the usage API lookup', async () => {
+    process.env.OPENCODE_MULTI_AUTH_CREDIT_ACCOUNT_ALIASES = 'personal'
+    fetchUsageRateLimitsForAccount.mockResolvedValue({
+      source: 'usage-api',
+      rateLimits: {
+        fiveHour: { remaining: 0, resetAt: Date.now() + 60_000 },
+        weekly: { remaining: 0, resetAt: Date.now() + 120_000 }
+      },
+      credits: {
+        hasCredits: true,
+        balance: '5.00'
+      },
+      rateLimitedUntil: Date.now() + 60_000
+    })
+
+    await refreshRateLimitsForAccount({ ...baseAccount, alias: 'work' })
+
+    expect(fetchUsageRateLimitsForAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ alias: 'work' }),
+      { creditsAllowed: false }
+    )
+
+    delete process.env.OPENCODE_MULTI_AUTH_CREDIT_ACCOUNT_ALIASES
   })
 })

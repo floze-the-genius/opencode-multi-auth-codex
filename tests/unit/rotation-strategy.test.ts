@@ -39,6 +39,7 @@ describe('Rotation Strategy Runtime Behavior', () => {
     delete process.env.OPENCODE_MULTI_AUTH_ROTATION_STRATEGY
     delete process.env.OPENCODE_MULTI_AUTH_CRITICAL_THRESHOLD
     delete process.env.OPENCODE_MULTI_AUTH_LOW_THRESHOLD
+    delete process.env.OPENCODE_MULTI_AUTH_CREDIT_ACCOUNT_ALIASES
 
     if (fs.existsSync(TEST_DIR)) {
       fs.rmSync(TEST_DIR, { recursive: true, force: true })
@@ -173,6 +174,67 @@ describe('Rotation Strategy Runtime Behavior', () => {
     expect(rotation?.account.alias).toBe('withCredits')
   })
 
+  it('only keeps accounts with credits eligible when their alias is allowed', async () => {
+    process.env.OPENCODE_MULTI_AUTH_CREDIT_ACCOUNT_ALIASES = 'personal'
+
+    const store = loadStore()
+    store.accounts.personal = {
+      ...createAccount('personal', 10),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000,
+      credits: {
+        hasCredits: true,
+        balance: '5.00',
+        updatedAt: Date.now()
+      }
+    }
+    store.accounts.work = {
+      ...createAccount('work', 0),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000,
+      credits: {
+        hasCredits: true,
+        balance: '5.00',
+        updatedAt: Date.now()
+      }
+    }
+    saveStore(store)
+
+    const rotation = await getNextAccount(
+      {
+        ...DEFAULT_CONFIG,
+        rotationStrategy: 'least-used'
+      },
+      { model: 'gpt-5.4' }
+    )
+
+    expect(rotation?.account.alias).toBe('personal')
+  })
+
+  it('does not use credits from disallowed accounts', async () => {
+    process.env.OPENCODE_MULTI_AUTH_CREDIT_ACCOUNT_ALIASES = 'personal'
+
+    const store = loadStore()
+    store.accounts.work = {
+      ...createAccount('work', 0),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000,
+      credits: {
+        hasCredits: true,
+        balance: '5.00',
+        updatedAt: Date.now()
+      }
+    }
+    saveStore(store)
+
+    const rotation = await getNextAccount(
+      {
+        ...DEFAULT_CONFIG,
+        rotationStrategy: 'least-used'
+      },
+      { model: 'gpt-5.4' }
+    )
+
+    expect(rotation).toBeNull()
+  })
+
   it('refreshes usage once when all accounts are blocked and credits were added later', async () => {
     process.env.OPENCODE_MULTI_AUTH_USAGE_BASE_URL = 'https://example.test/backend-api'
     global.fetch = (async (_url, init) => {
@@ -220,5 +282,28 @@ describe('Rotation Strategy Runtime Behavior', () => {
       balance: '5.00'
     }))
     expect(reloaded.accounts.withCredits.rateLimitedUntil).toBeUndefined()
+  })
+
+  it('tries soft rate-limited accounts when usage refresh cannot confirm credits', async () => {
+    process.env.OPENCODE_MULTI_AUTH_USAGE_BASE_URL = 'https://example.test/backend-api'
+    global.fetch = (async () => new Response('{}', { status: 403 })) as typeof fetch
+
+    const store = loadStore()
+    store.accounts.alpha = {
+      ...createAccount('alpha', 0),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000
+    }
+    store.accounts.beta = {
+      ...createAccount('beta', 10),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000
+    }
+    saveStore(store)
+
+    const rotation = await getNextAccount({
+      ...DEFAULT_CONFIG,
+      rotationStrategy: 'least-used'
+    })
+
+    expect(rotation?.account.alias).toBe('alpha')
   })
 })

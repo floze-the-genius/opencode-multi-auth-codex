@@ -1,6 +1,7 @@
 import { loadStore, saveStore } from './store.js';
 import { logInfo, logError } from './logger.js';
 import { DEFAULT_ROTATION_SETTINGS, WEIGHTED_PRESETS, validateSettings } from './types.js';
+import { parseCreditAccountAliases } from './credits-policy.js';
 function resolveSettings(includeEnvOverrides) {
     const store = loadStore();
     // Start with defaults
@@ -36,6 +37,10 @@ function resolveSettings(includeEnvOverrides) {
                 settings.lowThreshold = parsed;
                 source = 'env';
             }
+        }
+        if (process.env.OPENCODE_MULTI_AUTH_CREDIT_ACCOUNT_ALIASES !== undefined) {
+            settings.creditAccountAliases = parseCreditAccountAliases(process.env.OPENCODE_MULTI_AUTH_CREDIT_ACCOUNT_ALIASES);
+            source = 'env';
         }
         // Phase G: Feature flag environment overrides
         const envAntigravity = process.env.OPENCODE_MULTI_AUTH_ANTIGRAVITY_ENABLED;

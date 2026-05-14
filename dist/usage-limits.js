@@ -114,7 +114,7 @@ export function classifyUsageApiFailure(status, rawText) {
     }
     return { shouldProbeFallback: true };
 }
-export async function fetchUsageRateLimitsForAccount(account) {
+export async function fetchUsageRateLimitsForAccount(account, options = {}) {
     const token = account.accessToken?.trim();
     if (!token) {
         return {
@@ -194,8 +194,9 @@ export async function fetchUsageRateLimitsForAccount(account) {
         fiveHour: mapWindow(details?.primary_window, now),
         weekly: mapWindow(details?.secondary_window, now)
     };
+    const creditsAllowed = options.creditsAllowed !== false;
     if (!hasMeaningfulRateLimits(rateLimits)) {
-        if (hasUsableCredits(credits)) {
+        if (creditsAllowed && hasUsableCredits(credits)) {
             return {
                 source: 'usage-api',
                 planType: payload.plan_type,
@@ -209,7 +210,7 @@ export async function fetchUsageRateLimitsForAccount(account) {
         };
     }
     const rateLimitedUntil = details?.limit_reached || details?.allowed === false
-        ? hasUsableCredits(credits)
+        ? creditsAllowed && hasUsableCredits(credits)
             ? undefined
             : getBlockingRateLimitResetAt(rateLimits, now)
         : undefined;
