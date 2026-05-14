@@ -16,6 +16,7 @@ import {
   markRateLimited,
   markWorkspaceDeactivated
 } from './rotation.js'
+import { refreshRateLimitsForAccount } from './limits-refresh.js'
 import { getDefaultModels } from './models.js'
 import { getForceState, isForceActive } from './force-mode.js'
 import { getRuntimeSettings } from './settings.js'
@@ -870,6 +871,16 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
                   pluginConfig.rateLimitCooldownMs
                 )
                 markRateLimited(account.alias, rateLimitedUntil)
+                if (isCreditsAllowedForAlias(account.alias)) {
+                  const latestAccount = loadStore().accounts[account.alias]
+                  if (latestAccount) {
+                    await refreshRateLimitsForAccount(latestAccount).catch((err) => {
+                      if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
+                        console.warn(`[multi-auth] Credit refresh after 429 failed for ${account.alias}: ${err}`)
+                      }
+                    })
+                  }
+                }
 
                 if (attempt < maxAttempts) {
                   continue
