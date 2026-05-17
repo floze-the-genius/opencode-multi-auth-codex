@@ -9,14 +9,15 @@
     "opencode-multi-auth": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "pnpm run build:backend && pnpm run build:web",
+    "build:backend": "tsc",
+    "build:web": "pnpm --dir web run build",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "verify:static": "pnpm run typecheck && pnpm --dir web lint && pnpm --dir web typecheck",
     "verify:plan": "pnpm run verify:static && pnpm run test",
     "package:manual-approval": "echo Production build/package validation is deferred until explicit approval",
     "web": "node ./dist/cli.js web --port 3434 --host 127.0.0.1",
-    "web:build": "pnpm --dir web build",
     "test": "pnpm run test:backend && pnpm run test:frontend",
     "test:backend": "pnpm run test:unit && pnpm run test:integration && pnpm run test:web:headless",
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/unit",
