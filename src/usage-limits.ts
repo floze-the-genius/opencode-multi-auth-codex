@@ -83,15 +83,18 @@ function mapWindow(window: UsageWindowSnapshot | null | undefined, now: number):
 }
 
 function pickRateLimitDetails(payload: UsagePayload): UsageRateLimitDetails | null {
-  if (payload.rate_limit) return payload.rate_limit
-
   const additional = Array.isArray(payload.additional_rate_limits) ? payload.additional_rate_limits : []
   const preferred = additional.find((entry) => {
     const feature = entry.metered_feature?.trim().toLowerCase()
     const limitName = entry.limit_name?.trim().toLowerCase()
-    return feature === 'codex' || limitName === 'codex'
+    return feature === 'codex' ||
+      feature?.startsWith('codex_') ||
+      limitName === 'codex' ||
+      limitName?.includes('codex')
   })
   if (preferred?.rate_limit) return preferred.rate_limit
+
+  if (payload.rate_limit) return payload.rate_limit
 
   return additional.find((entry) => entry.rate_limit)?.rate_limit || null
 }
@@ -175,14 +178,9 @@ export async function fetchUsageRateLimitsForAccount(
     }
   }
 
-  const url = `${getUsageBaseUrl()}/codex/usage`
+  const url = `${getUsageBaseUrl()}/wham/usage`
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
-    'User-Agent': 'codex_cli_rs/0.122.0 (linux)',
-    originator: 'codex_cli_rs'
-  }
-  if (account.accountId) {
-    headers['ChatGPT-Account-Id'] = account.accountId
+    Authorization: `Bearer ${token}`
   }
 
   const maxAttempts = 3

@@ -4,7 +4,7 @@ import { logInfo, logWarn } from './logger.js'
 import type { AccountCredentials } from './types.js'
 
 // Keep the default below Cloudflare's per-IP burst threshold for
-// /backend-api/codex/usage. The env override still allows higher concurrency.
+// /backend-api/wham/usage. The env override still allows higher concurrency.
 const DEFAULT_REFRESH_QUEUE_CONCURRENCY = 5
 const MAX_REFRESH_QUEUE_CONCURRENCY = 20
 const REFRESH_QUEUE_CONCURRENCY_ENV = 'OPENCODE_MULTI_AUTH_REFRESH_QUEUE_CONCURRENCY'

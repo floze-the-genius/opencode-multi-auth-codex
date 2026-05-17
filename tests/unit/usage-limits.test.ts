@@ -75,7 +75,7 @@ describe('usage API fetch', () => {
     jest.restoreAllMocks()
   })
 
-  it('calls the Codex usage endpoint with Codex originator headers', async () => {
+  it('calls the wham usage endpoint with bearer authorization', async () => {
     const mockFetch = jest.fn(async () => new Response(JSON.stringify({
       plan_type: 'pro',
       rate_limit: {
@@ -88,18 +88,47 @@ describe('usage API fetch', () => {
     const result = await fetchUsageRateLimitsForAccount(account)
 
     expect(mockFetch).toHaveBeenCalledWith(
-      'https://example.test/backend-api/codex/usage',
+      'https://example.test/backend-api/wham/usage',
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
-          Authorization: 'Bearer access-token',
-          'ChatGPT-Account-Id': 'account-id',
-          originator: 'codex_cli_rs'
+          Authorization: 'Bearer access-token'
         })
       })
     )
+    expect(mockFetch.mock.calls[0][1]?.headers).not.toEqual(expect.objectContaining({
+      originator: expect.any(String),
+      'ChatGPT-Account-Id': expect.any(String)
+    }))
     expect(result.planType).toBe('pro')
     expect(result.rateLimits?.fiveHour?.remaining).toBe(75)
     expect(result.rateLimits?.weekly?.remaining).toBe(90)
+  })
+
+  it('prefers Codex-specific additional rate limits from wham usage payloads', async () => {
+    const mockFetch = jest.fn(async () => new Response(JSON.stringify({
+      plan_type: 'prolite',
+      rate_limit: {
+        primary_window: { used_percent: 25, reset_after_seconds: 60 },
+        secondary_window: { used_percent: 10, reset_after_seconds: 120 }
+      },
+      additional_rate_limits: [
+        {
+          limit_name: 'GPT-5.3-Codex-Spark',
+          metered_feature: 'codex_bengalfox',
+          rate_limit: {
+            primary_window: { used_percent: 2, reset_after_seconds: 300 },
+            secondary_window: { used_percent: 3, reset_after_seconds: 600 }
+          }
+        }
+      ]
+    }), { status: 200 }))
+    global.fetch = mockFetch as typeof fetch
+
+    const result = await fetchUsageRateLimitsForAccount(account)
+
+    expect(result.planType).toBe('prolite')
+    expect(result.rateLimits?.fiveHour?.remaining).toBe(98)
+    expect(result.rateLimits?.weekly?.remaining).toBe(97)
   })
 })
