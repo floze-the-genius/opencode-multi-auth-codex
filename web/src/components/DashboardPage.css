@@ -1,7 +1,9 @@
 .dashboard-page {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xl);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  grid-auto-flow: row dense;
+  align-items: start;
+  gap: var(--spacing-lg);
   width: 100%;
   box-sizing: border-box;
 }
@@ -29,21 +31,45 @@
 
 /* Health Summary */
 .dashboard-health {
+  grid-column: 2;
+  grid-row: 1;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
+  border-radius: var(--radius);
+  padding: var(--spacing-md);
   box-shadow: var(--shadow);
 }
 
 .dashboard-health .meta-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: var(--spacing-md);
+  grid-template-columns: 1fr;
+  gap: var(--spacing-xs);
+}
+
+.dashboard-health .meta-card {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  align-items: baseline;
+  min-height: 0;
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--radius-sm);
+}
+
+.dashboard-health .meta-label {
+  font-size: 0.72rem;
+}
+
+.dashboard-health .meta-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+  font-size: 0.85rem;
 }
 
 /* System Notices */
 .dashboard-notice {
+  grid-column: 1 / -1;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -78,16 +104,18 @@
 
 /* Quick Actions */
 .dashboard-actions {
+  grid-column: 2;
+  grid-row: 2;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
+  border-radius: var(--radius);
+  padding: var(--spacing-md);
   box-shadow: var(--shadow);
 }
 
 .dashboard-actions .actions-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: var(--spacing-sm);
   align-items: center;
 }
@@ -111,10 +139,12 @@
 
 /* Queue Status */
 .dashboard-queue {
+  grid-column: 2;
+  grid-row: 3;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
+  border-radius: var(--radius);
+  padding: var(--spacing-md);
   box-shadow: var(--shadow);
 }
 
@@ -213,13 +243,14 @@
 
 /* Logs & Observability Panel */
 .dashboard-logs-panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 1fr);
+  gap: var(--spacing-md);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
+  padding: var(--spacing-md);
   box-shadow: var(--shadow);
 }
 
@@ -231,8 +262,10 @@
 }
 
 .dashboard-logs-panel .operations-section + .operations-section {
-  border-top: 1px solid var(--border);
-  padding-top: var(--spacing-lg);
+  border-top: none;
+  border-left: 1px solid var(--border);
+  padding-top: 0;
+  padding-left: var(--spacing-md);
 }
 
 .dashboard-logs-panel .section-title {
@@ -261,7 +294,7 @@
 }
 
 .logs-list {
-  max-height: 320px;
+  max-height: 220px;
   overflow-y: auto;
   padding: var(--spacing-xs) 0;
 }
@@ -386,6 +419,8 @@
 
 /* Account Status Cards */
 .dashboard-account-cards {
+  grid-column: 1;
+  grid-row: 1 / span 3;
   background: none;
 }
 
@@ -755,19 +790,20 @@
 
 /* Insights Section */
 .dashboard-insights {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--spacing-md);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
+  border-radius: var(--radius);
+  padding: var(--spacing-md);
   box-shadow: var(--shadow);
 }
 
 .insights-section + .insights-section {
-  border-top: 1px solid var(--border);
-  padding-top: var(--spacing-lg);
+  border-top: none;
+  padding-top: 0;
 }
 
 .insights-section .section-title {
@@ -780,15 +816,15 @@
 
 .quota-health-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: var(--spacing-md);
+  grid-template-columns: 1fr;
+  gap: var(--spacing-sm);
 }
 
 .quota-health-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: var(--spacing-md);
+  padding: var(--spacing-sm);
 }
 
 .quota-health-title {
@@ -846,15 +882,15 @@
 
 .resets-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: var(--spacing-md);
+  grid-template-columns: 1fr;
+  gap: var(--spacing-sm);
 }
 
 .reset-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: var(--spacing-md);
+  padding: var(--spacing-sm);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1028,7 +1064,7 @@
 }
 
 .overview-notice {
-  padding: var(--spacing-md);
+  padding: var(--spacing-sm);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1043,13 +1079,67 @@
 }
 
 /* Responsive */
+@media (max-width: 1180px) {
+  .dashboard-page {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-account-cards {
+    grid-column: 1;
+    grid-row: auto;
+    order: -3;
+  }
+
+  .dashboard-health,
+  .dashboard-actions,
+  .dashboard-queue {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .dashboard-health {
+    order: -2;
+  }
+
+  .dashboard-actions {
+    order: -1;
+  }
+
+  .dashboard-health .meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-insights {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-logs-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-logs-panel .operations-section + .operations-section {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    padding-left: 0;
+    padding-top: var(--spacing-md);
+  }
+}
+
 @media (max-width: 640px) {
+  .dashboard-page {
+    gap: var(--spacing-md);
+  }
+
   .account-cards-grid {
     grid-template-columns: 1fr;
   }
 
   .dashboard-health .meta-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-health .meta-card {
+    grid-template-columns: 86px minmax(0, 1fr);
   }
 
   .dashboard-actions .actions-row {
@@ -1063,6 +1153,10 @@
   }
 
   .quota-health-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-insights {
     grid-template-columns: 1fr;
   }
 }

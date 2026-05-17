@@ -120,8 +120,8 @@
 
 .app-main {
   flex: 1;
-  padding: var(--spacing-xl) var(--spacing-2xl);
-  max-width: 1440px;
+  padding: var(--spacing-lg) var(--spacing-xl);
+  max-width: 1680px;
   margin: 0 auto;
   width: 100%;
 }
