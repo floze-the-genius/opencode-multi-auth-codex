@@ -59,6 +59,7 @@
     "oauth",
     "multi-account"
   ],
+  "packageManager": "pnpm@11.1.0",
   "author": "a3fckx",
   "license": "MIT"
 }

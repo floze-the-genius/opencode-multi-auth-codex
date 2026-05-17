@@ -11,3 +11,6 @@ node
 auto-login/credentials.json
 auto-login/debug_*.png
 auto-login/__pycache__/
+/.idea/
+/dist/
+opencode.json
