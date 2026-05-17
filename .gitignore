@@ -16,3 +16,4 @@ auto-login/__pycache__/
 /web/node_modules/
 opencode.json
 /.playwright-cli/
+/.agents/
