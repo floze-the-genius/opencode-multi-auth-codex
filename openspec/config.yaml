@@ -1,0 +1,33 @@
+schema: spec-driven
+
+context: |
+  Tech stack: TypeScript 5 + Node.js ESM CLI package (pnpm workspace metadata present).
+  Architecture: Single-package source layout under src/ with tests/ and a bundled Python helper in auto-login/.
+  Testing: Jest 29 with ts-jest; test files matched from tests/**/*.test.ts.
+  Style: TypeScript strict checks via ts-jest/tsconfig signals; dedicated formatter/linter config not detected.
+  CI: GitHub Actions workflow present for publish-npm.
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Identify affected modules/packages
+  specs:
+    - Use Given/When/Then format for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group tasks by phase (infrastructure, implementation, testing)
+    - Use hierarchical numbering (1.1, 1.2, etc.)
+    - Keep tasks small enough to complete in one session
+  apply:
+    - Follow existing code patterns and conventions
+    tdd: false
+    test_command: ''
+  verify:
+    test_command: ''
+    build_command: ''
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
