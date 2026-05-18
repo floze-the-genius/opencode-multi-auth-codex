@@ -39,6 +39,8 @@ export async function refreshRateLimitsForAccount(account: AccountCredentials): 
     }
     if (typeof usage.rateLimitedUntil === 'number' && usage.rateLimitedUntil > now) {
       updates.rateLimitedUntil = usage.rateLimitedUntil
+    } else {
+      updates.rateLimitedUntil = undefined
     }
     updateAccount(account.alias, updates)
     logInfo(`Limits refreshed for ${account.alias} via usage API`)
