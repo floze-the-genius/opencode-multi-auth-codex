@@ -532,13 +532,22 @@ export function getStoreDiagnostics(): {
 
 export function addAccount(alias: string, creds: Omit<AccountCredentials, 'alias' | 'usageCount'>): AccountStore {
   const store = loadStore()
+  const existing = store.accounts[alias]
   const entry = buildHistoryEntry(creds.rateLimits)
-  store.accounts[alias] = {
+  const next: AccountCredentials = {
+    ...(existing ?? {}),
     ...creds,
     alias,
-    usageCount: 0,
-    rateLimitHistory: entry ? [entry] : creds.rateLimitHistory
+    usageCount: existing?.usageCount ?? 0
   }
+
+  if (entry) {
+    next.rateLimitHistory = existing ? appendHistory(existing.rateLimitHistory, entry) : [entry]
+  } else if (creds.rateLimitHistory !== undefined) {
+    next.rateLimitHistory = creds.rateLimitHistory
+  }
+
+  store.accounts[alias] = next
   if (!store.activeAlias) {
     store.activeAlias = alias
   }

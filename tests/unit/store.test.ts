@@ -62,6 +62,69 @@ describe('Store Operations', () => {
     expect(updated.accounts['test-alias'].email).toBe('updated@example.com')
   })
 
+  it('should preserve existing account metadata on addAccount overwrite', () => {
+    const now = Date.now()
+    addAccount('test-alias', {
+      accessToken: 'old-access-token',
+      refreshToken: 'old-refresh-token',
+      expiresAt: now + 1000,
+      email: 'old@example.com'
+    })
+
+    updateAccount('test-alias', {
+      usageCount: 42,
+      tags: ['vip', 'warm'],
+      notes: 'keep-me',
+      enabled: false,
+      disabledAt: now - 10_000,
+      disabledBy: 'operator',
+      disableReason: 'maintenance',
+      limitStatus: 'error',
+      limitError: 'temporary',
+      lastLimitProbeAt: now - 5_000,
+      lastLimitErrorAt: now - 4_000,
+      lastUsed: now - 3_000,
+      lastActiveUntil: now - 2_000,
+      rateLimitedUntil: now + 15_000,
+      modelUnsupportedUntil: now + 20_000,
+      workspaceDeactivatedUntil: now + 25_000,
+      authInvalid: true,
+      rateLimitHistory: [{ at: now - 60_000, fiveHour: { remaining: 10, limit: 100, resetAt: now + 1_000 } }]
+    })
+
+    addAccount('test-alias', {
+      accessToken: 'new-access-token',
+      refreshToken: 'new-refresh-token',
+      expiresAt: now + 3600_000,
+      email: 'new@example.com'
+    })
+
+    const reloaded = loadStore()
+    const updated = reloaded.accounts['test-alias']
+    expect(updated.accessToken).toBe('new-access-token')
+    expect(updated.refreshToken).toBe('new-refresh-token')
+    expect(updated.expiresAt).toBe(now + 3600_000)
+    expect(updated.email).toBe('new@example.com')
+    expect(updated.usageCount).toBe(42)
+    expect(updated.tags).toEqual(['vip', 'warm'])
+    expect(updated.notes).toBe('keep-me')
+    expect(updated.enabled).toBe(false)
+    expect(updated.disabledAt).toBe(now - 10_000)
+    expect(updated.disabledBy).toBe('operator')
+    expect(updated.disableReason).toBe('maintenance')
+    expect(updated.limitStatus).toBe('error')
+    expect(updated.limitError).toBe('temporary')
+    expect(updated.lastLimitProbeAt).toBe(now - 5_000)
+    expect(updated.lastLimitErrorAt).toBe(now - 4_000)
+    expect(updated.lastUsed).toBe(now - 3_000)
+    expect(updated.lastActiveUntil).toBe(now - 2_000)
+    expect(updated.rateLimitedUntil).toBe(now + 15_000)
+    expect(updated.modelUnsupportedUntil).toBe(now + 20_000)
+    expect(updated.workspaceDeactivatedUntil).toBe(now + 25_000)
+    expect(updated.authInvalid).toBe(true)
+    expect(updated.rateLimitHistory).toEqual([{ at: now - 60_000, fiveHour: { remaining: 10, limit: 100, resetAt: now + 1_000 } }])
+  })
+
   it('should persist accountUserId and userId across reload', () => {
     addAccount('test-alias', {
       accessToken: 'test-access-token',
