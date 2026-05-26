@@ -10,7 +10,7 @@ import { createAuthorizationFlow, loginAccount, refreshToken } from './auth.js'
 import { getCodexAuthPath, getCodexAuthStatus, getCodexAuthSummary, resolveAliasForCurrentAuth, syncCodexAuthFile, writeCodexAuthForAlias } from './codex-auth.js'
 import { getStoreStatus, listAccounts, loadStore, removeAccount, updateAccount } from './store.js'
 import { getRefreshQueueState, startRefreshQueue, stopRefreshQueue } from './refresh-queue.js'
-import { getLogPath, logError, logInfo, readLogTail } from './logger.js'
+import { getLogPath, logError, logInfo, logWarn, readLogTail } from './logger.js'
 import { getForceState, activateForce, clearForce, isForceActive, getRemainingForceTimeMs, formatForceDuration } from './force-mode.js'
 import {
   getSettings,
@@ -210,6 +210,14 @@ function sendJson(res: http.ServerResponse, status: number, payload: unknown): v
     'Content-Length': Buffer.byteLength(data)
   })
   res.end(data)
+}
+
+function getSanitizedErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message.replace(/\s+/g, ' ').trim()
+  }
+
+  return String(error).replace(/\s+/g, ' ').trim()
 }
 
 function scrubAccount(account: AccountCredentials): Omit<AccountCredentials, 'accessToken' | 'refreshToken' | 'idToken'> {
@@ -1366,6 +1374,7 @@ export function startWebConsole(options?: { port?: number; host?: string }): htt
       const alias = typeof body.alias === 'string' ? body.alias : undefined
       const targets = alias ? candidates.filter((acc) => acc.alias === alias) : candidates
       if (alias && targets.length === 0) {
+        logWarn(`[multi-auth] Refresh requested for unknown alias: ${alias}`)
         sendJson(res, 400, { error: 'Unknown alias' })
         return
       }
@@ -1374,6 +1383,7 @@ export function startWebConsole(options?: { port?: number; host?: string }): htt
       const results: Array<{ alias: string; updated: boolean; error?: string }> = []
       for (const account of targets) {
         if (!account.refreshToken) {
+          logWarn(`[multi-auth] Refresh skipped (no refresh token) for ${account.alias}`)
           results.push({ alias: account.alias, updated: false, error: 'No refresh token' })
           continue
         }
@@ -1387,6 +1397,8 @@ export function startWebConsole(options?: { port?: number; host?: string }): htt
           try {
             writeCodexAuthForAlias(account.alias)
           } catch (err) {
+            const errorMessage = getSanitizedErrorMessage(err)
+            logError(`[multi-auth] Refreshed token but failed to update auth.json for ${account.alias}: ${errorMessage}`)
             results.push({ alias: account.alias, updated: true, error: `Refreshed, but failed to update auth.json: ${err}` })
             continue
           }

@@ -369,6 +369,17 @@ describe('dashboard API contract parity', () => {
       })
       expect(tokenRefreshUnknown).toEqual({ status: 400, body: { error: 'Unknown alias' } })
 
+      const logsAfterUnknownRefresh = await requestJson(port, '/api/logs?limit=50')
+      expect(logsAfterUnknownRefresh.status).toBe(200)
+      expect(logsAfterUnknownRefresh.body.lines).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            level: 'warn',
+            message: expect.stringContaining('[multi-auth] Refresh requested for unknown alias: ghost')
+          })
+        ])
+      )
+
       const limitsRefreshUnknown = await requestJson(port, '/api/limits/refresh', {
         method: 'POST',
         body: JSON.stringify({ alias: 'ghost' })

@@ -10,6 +10,7 @@ import {
   getExpiryFromClaims,
   getPlanTypeFromClaims
 } from './codex-auth.js'
+import { logError, logInfo } from './logger.js'
 import type { AccountCredentials } from './types.js'
 
 const OPENAI_ISSUER = 'https://auth.openai.com'
@@ -275,7 +276,7 @@ export async function refreshToken(alias: string): Promise<AccountCredentials | 
   const account = store.accounts[alias]
 
   if (!account?.refreshToken) {
-    console.error(`[multi-auth] No refresh token for ${alias}`)
+    logError(`[multi-auth] No refresh token for ${alias}`)
     return null
   }
 
@@ -291,7 +292,7 @@ export async function refreshToken(alias: string): Promise<AccountCredentials | 
     })
 
     if (!tokenRes.ok) {
-      console.error(`[multi-auth] Refresh failed for ${alias}: ${tokenRes.status}`)
+      logError(`[multi-auth] Refresh failed for ${alias}: ${tokenRes.status}`)
 
       if (tokenRes.status === 401 || tokenRes.status === 403) {
         try {
@@ -329,10 +330,12 @@ export async function refreshToken(alias: string): Promise<AccountCredentials | 
 
     const updatedStore = updateAccount(alias, updates)
     clearAuthInvalid(alias)
+    logInfo(`[multi-auth] Token refreshed for ${alias}`)
 
     return updatedStore.accounts[alias]
   } catch (err) {
-    console.error(`[multi-auth] Refresh error for ${alias}:`, err)
+    const message = err instanceof Error ? err.message : String(err)
+    logError(`[multi-auth] Refresh error for ${alias}: ${message}`)
     return null
   }
 }
