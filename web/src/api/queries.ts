@@ -49,7 +49,7 @@ export function useDashboardStateQuery(pollingInterval = 5000) {
   return useQuery<DashboardState>({
     queryKey: queryKeys.dashboardState,
     queryFn: getState,
-    refetchInterval: pollingInterval,
+    refetchInterval: (query) => (query.state.data?.queue?.running ? 1000 : pollingInterval),
     staleTime: Math.min(pollingInterval / 2, 2000)
   })
 }
@@ -71,7 +71,7 @@ export function useRefreshTokensMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: () => refreshToken(),
+    mutationFn: (alias?: string) => refreshToken(alias),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboardState })
     }
@@ -83,7 +83,7 @@ export function useRefreshLimitsMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: () => refreshLimits(),
+    mutationFn: (alias?: string) => refreshLimits(alias),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboardState })
     }

@@ -192,11 +192,11 @@ export function deriveOverviewInsights(state: DashboardState): OverviewInsights 
     })
   }
 
-  if (state.queue && state.queue.failed > 0) {
+  if (state.queue && state.queue.errors > 0) {
     anomalies.push({
       type: 'queue-errors',
       severity: 'warning',
-      message: `Refresh queue has ${state.queue.failed} failed job(s)`
+      message: `Refresh queue has ${state.queue.errors} failed job(s)`
     })
   }
 

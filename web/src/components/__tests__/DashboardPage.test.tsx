@@ -1,10 +1,10 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { DashboardPage } from '../DashboardPage'
-import { NotificationProvider } from '../../hooks/useNotification'
+import { NotificationProvider, useNotification } from '../../hooks/useNotification'
 import type { DashboardState, LogsResponse, ForceState } from '../../types/api'
 
 const mockState: DashboardState = {
@@ -143,6 +143,17 @@ function createWrapper() {
   }
 }
 
+function NotificationProbe() {
+  const { notifications } = useNotification()
+  return (
+    <div data-testid="notification-probe">
+      {notifications.map((notification) => (
+        <div key={notification.id}>{notification.message}</div>
+      ))}
+    </div>
+  )
+}
+
 describe('DashboardPage', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -278,6 +289,143 @@ describe('DashboardPage', () => {
     expect(refreshLimitsButtons.length).toBe(1)
   })
 
+  test('refresh tokens from drawer sends the selected alias', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/token/refresh')) {
+        const body = init?.body ? JSON.parse(String(init.body)) : {}
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, results: [{ alias: body.alias, updated: true }] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          })
+        )
+      }
+      if (url.includes('/api/logs')) {
+        return Promise.resolve(new Response(JSON.stringify(mockLogs), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      if (url.includes('/api/force')) {
+        return Promise.resolve(new Response(JSON.stringify(mockForceState), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(mockState), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    })
+
+    render(
+      <>
+        <DashboardPage />
+        <NotificationProbe />
+      </>,
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(screen.getAllByText('alpha')[0]).toBeInTheDocument())
+    const manageButtons = screen.getAllByRole('button', { name: /manage/i })
+    fireEvent.click(manageButtons[0])
+
+    const dialog = await screen.findByRole('dialog', { name: /account details/i })
+    fireEvent.click(within(dialog).getByRole('button', { name: /^refresh tokens$/i }))
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/token/refresh',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ alias: 'alpha' })
+        })
+      )
+    })
+  })
+
+  test('refresh limits from drawer sends alias and shows queued notification while queue is running', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/limits/refresh')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, queue: { running: true, total: 2, completed: 0, errors: 0, pending: 2 } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          })
+        )
+      }
+      if (url.includes('/api/logs')) {
+        return Promise.resolve(new Response(JSON.stringify(mockLogs), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      if (url.includes('/api/force')) {
+        return Promise.resolve(new Response(JSON.stringify(mockForceState), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(mockState), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    })
+
+    render(
+      <>
+        <DashboardPage />
+        <NotificationProbe />
+      </>,
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(screen.getAllByText('alpha')[0]).toBeInTheDocument())
+    fireEvent.click(screen.getAllByRole('button', { name: /manage/i })[0])
+
+    const dialog = await screen.findByRole('dialog', { name: /account details/i })
+    fireEvent.click(within(dialog).getByRole('button', { name: /^refresh limits$/i }))
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/limits/refresh',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ alias: 'alpha' })
+        })
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('notification-probe').textContent).toContain('Limit refresh queued for alpha')
+    })
+    expect(screen.queryByText('Limits refreshed for alpha')).not.toBeInTheDocument()
+  })
+
+  test('refresh tokens from drawer shows error notification when API result has updated and error', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation((input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/token/refresh')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, results: [{ alias: 'alpha', updated: true, error: 'Auth write failed' }] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          })
+        )
+      }
+      if (url.includes('/api/logs')) {
+        return Promise.resolve(new Response(JSON.stringify(mockLogs), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      if (url.includes('/api/force')) {
+        return Promise.resolve(new Response(JSON.stringify(mockForceState), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      }
+      return Promise.resolve(new Response(JSON.stringify(mockState), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    })
+
+    render(
+      <>
+        <DashboardPage />
+        <NotificationProbe />
+      </>,
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(screen.getAllByText('alpha')[0]).toBeInTheDocument())
+    fireEvent.click(screen.getAllByRole('button', { name: /manage/i })[0])
+
+    const dialog = await screen.findByRole('dialog', { name: /account details/i })
+    fireEvent.click(within(dialog).getByRole('button', { name: /^refresh tokens$/i }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('notification-probe').textContent).toMatch(/Auth write failed|Failed to refresh tokens for alpha/)
+    })
+    expect(screen.queryByText('Tokens refreshed for alpha')).not.toBeInTheDocument()
+  })
+
   // --- Queue Status ---
 
   test('shows queue status when refresh is running', async () => {
@@ -286,7 +434,7 @@ describe('DashboardPage', () => {
         running: true,
         total: 10,
         completed: 4,
-        failed: 1,
+        errors: 1,
         pending: 5
       }
     })
@@ -299,8 +447,9 @@ describe('DashboardPage', () => {
       expect(runningElements.length).toBeGreaterThanOrEqual(1)
     })
 
-    // Queue detail shows "4 / 10 completed" (text may be split across nodes)
+    // Queue detail shows "4 / 10 completed" and error count
     expect(screen.getByText(/completed/i)).toBeInTheDocument()
+    expect(screen.getByText(/1 error/i)).toBeInTheDocument()
     const progressBar = document.querySelector('.progress-fill')
     expect(progressBar).toHaveAttribute('style', expect.stringContaining('width: 40%'))
   })
@@ -426,7 +575,7 @@ describe('DashboardPage', () => {
 
   test('operational signals are always visible on dashboard', async () => {
     setupFetchMock({
-      queue: { running: true, total: 10, completed: 4, failed: 1, pending: 5 }
+      queue: { running: true, total: 10, completed: 4, errors: 1, pending: 5 }
     })
 
     render(<DashboardPage />, { wrapper: createWrapper() })

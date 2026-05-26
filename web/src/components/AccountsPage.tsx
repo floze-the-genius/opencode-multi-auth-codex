@@ -347,9 +347,18 @@ export function AccountsPage(): JSX.Element {
 
   const handleRefreshTokens = useCallback(
     (alias: string) => {
-      refreshTokensMutation.mutate(undefined, {
-        onSuccess: () => {
-          addNotification({ message: `Tokens refreshed for ${alias}`, type: 'success' })
+      refreshTokensMutation.mutate(alias, {
+        onSuccess: (data) => {
+          const result = data.results.find((item) => item.alias === alias)
+          if (result?.error) {
+            addNotification({ message: result.error, type: 'error' })
+            return
+          }
+          if (result?.updated) {
+            addNotification({ message: `Tokens refreshed for ${alias}`, type: 'success' })
+            return
+          }
+          addNotification({ message: `Failed to refresh tokens for ${alias}`, type: 'error' })
         },
         onError: (err: Error) => {
           addNotification({ message: err.message, type: 'error' })
@@ -361,9 +370,12 @@ export function AccountsPage(): JSX.Element {
 
   const handleRefreshLimits = useCallback(
     (alias: string) => {
-      refreshLimitsMutation.mutate(undefined, {
-        onSuccess: () => {
-          addNotification({ message: `Limits refreshed for ${alias}`, type: 'success' })
+      refreshLimitsMutation.mutate(alias, {
+        onSuccess: (data) => {
+          addNotification({
+            message: data.queue.running ? `Limit refresh queued for ${alias}` : `Limit refresh started for ${alias}`,
+            type: 'info'
+          })
         },
         onError: (err: Error) => {
           addNotification({ message: err.message, type: 'error' })

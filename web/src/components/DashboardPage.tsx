@@ -43,7 +43,7 @@ function formatStoreStatus(encrypted: boolean, locked: boolean): string {
 }
 
 function queueSeverity(queue: import('../types/api').RefreshQueueState): 'error' | 'warning' | 'ok' {
-  if (queue.failed > 0) return 'error'
+  if (queue.errors > 0) return 'error'
   if (queue.running && queue.completed < queue.total) return 'ok'
   if (!queue.running && queue.completed === queue.total && queue.total > 0) return 'ok'
   return 'warning'
@@ -131,11 +131,11 @@ export function DashboardPage(): JSX.Element {
   }, [syncMutation])
 
   const handleRefreshTokens = useCallback(() => {
-    refreshTokensMutation.mutate()
+    refreshTokensMutation.mutate(undefined)
   }, [refreshTokensMutation])
 
   const handleRefreshLimits = useCallback(() => {
-    refreshLimitsMutation.mutate()
+    refreshLimitsMutation.mutate(undefined)
   }, [refreshLimitsMutation])
 
   const handleRefreshUI = useCallback(() => {
@@ -274,8 +274,8 @@ export function DashboardPage(): JSX.Element {
                 <strong>{state.queue.running ? 'Running' : 'Idle'}</strong>
                 <span className="queue-detail">
                   {state.queue.completed} / {state.queue.total} completed
-                  {state.queue.failed > 0 && (
-                    <span className="queue-error-count"> · {state.queue.failed} error{state.queue.failed === 1 ? '' : 's'}</span>
+                  {state.queue.errors > 0 && (
+                    <span className="queue-error-count"> · {state.queue.errors} error{state.queue.errors === 1 ? '' : 's'}</span>
                   )}
                 </span>
               </div>
@@ -725,9 +725,18 @@ export function DashboardPage(): JSX.Element {
             )
           }}
           onRefreshTokens={() => {
-            refreshTokensMutation.mutate(undefined, {
-              onSuccess: () => {
-                addNotification({ message: `Tokens refreshed for ${drawerAccount.alias}`, type: 'success' })
+            refreshTokensMutation.mutate(drawerAccount.alias, {
+              onSuccess: (data) => {
+                const result = data.results.find((item) => item.alias === drawerAccount.alias)
+                if (result?.error) {
+                  addNotification({ message: result.error, type: 'error' })
+                  return
+                }
+                if (result?.updated) {
+                  addNotification({ message: `Tokens refreshed for ${drawerAccount.alias}`, type: 'success' })
+                  return
+                }
+                addNotification({ message: `Failed to refresh tokens for ${drawerAccount.alias}`, type: 'error' })
               },
               onError: (err: Error) => {
                 addNotification({ message: err.message, type: 'error' })
@@ -735,9 +744,14 @@ export function DashboardPage(): JSX.Element {
             })
           }}
           onRefreshLimits={() => {
-            refreshLimitsMutation.mutate(undefined, {
-              onSuccess: () => {
-                addNotification({ message: `Limits refreshed for ${drawerAccount.alias}`, type: 'success' })
+            refreshLimitsMutation.mutate(drawerAccount.alias, {
+              onSuccess: (data) => {
+                addNotification({
+                  message: data.queue.running
+                    ? `Limit refresh queued for ${drawerAccount.alias}`
+                    : `Limit refresh started for ${drawerAccount.alias}`,
+                  type: 'info'
+                })
               },
               onError: (err: Error) => {
                 addNotification({ message: err.message, type: 'error' })

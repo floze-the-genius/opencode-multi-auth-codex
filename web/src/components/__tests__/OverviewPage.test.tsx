@@ -217,7 +217,7 @@ describe('OverviewPage', () => {
         running: true,
         total: 10,
         completed: 4,
-        failed: 1,
+        errors: 1,
         pending: 5
       }
     }

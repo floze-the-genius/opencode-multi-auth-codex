@@ -1,7 +1,7 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useDashboardState } from '../useDashboardState'
+import { useDashboardState, getDashboardRefetchInterval } from '../useDashboardState'
 import type { DashboardState } from '../../types/api'
 
 const mockState: DashboardState = {
@@ -94,5 +94,14 @@ describe('useDashboardState', () => {
     expect(result.current.isLoading).toBe(true)
     // The hook should be configured with the polling interval
     // Actual polling behavior is verified through React Query internals
+  })
+
+  test('uses fast polling while queue is running', () => {
+    expect(getDashboardRefetchInterval(5000, { ...mockState, queue: { running: true, total: 5, completed: 1, errors: 0, pending: 4 } })).toBe(1000)
+  })
+
+  test('uses base polling when queue is not running', () => {
+    expect(getDashboardRefetchInterval(5000, { ...mockState, queue: { running: false, total: 5, completed: 5, errors: 0, pending: 0 } })).toBe(5000)
+    expect(getDashboardRefetchInterval(2000, { ...mockState, queue: null })).toBe(2000)
   })
 })

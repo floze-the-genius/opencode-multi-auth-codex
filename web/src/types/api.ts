@@ -116,7 +116,7 @@ export interface RefreshQueueState {
   running: boolean
   total: number
   completed: number
-  failed: number
+  errors: number
   pending: number
 }
 

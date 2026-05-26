@@ -4,7 +4,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { AccountsPage } from '../AccountsPage'
-import { NotificationProvider } from '../../hooks/useNotification'
+import { NotificationProvider, useNotification } from '../../hooks/useNotification'
 import type { DashboardState } from '../../types/api'
 
 const mockState: DashboardState = {
@@ -104,6 +104,17 @@ function createWrapper() {
       </MemoryRouter>
     )
   }
+}
+
+function NotificationProbe() {
+  const { notifications } = useNotification()
+  return (
+    <div data-testid="notification-probe">
+      {notifications.map((notification) => (
+        <div key={notification.id}>{notification.message}</div>
+      ))}
+    </div>
+  )
 }
 
 describe('AccountsPage', () => {
@@ -368,5 +379,147 @@ describe('AccountsPage', () => {
     // Reset column should show compact labels (multiple rows may have them)
     expect(screen.getAllByText(/5h:/i).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText(/wk:/i).length).toBeGreaterThanOrEqual(1)
+  })
+
+  test('drawer refresh tokens sends that account alias', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/token/refresh')) {
+        const body = init?.body ? JSON.parse(String(init.body)) : {}
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, results: [{ alias: body.alias, updated: true }] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          })
+        )
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(mockState), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      )
+    })
+
+    render(
+      <>
+        <AccountsPage />
+        <NotificationProbe />
+      </>,
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(screen.getAllByText('alpha')[0]).toBeInTheDocument())
+
+    const alphaRow = screen.getAllByText('alpha')[0].closest('tr')
+    if (!alphaRow) throw new Error('Row not found')
+    fireEvent.click(alphaRow)
+
+    await waitFor(() => expect(screen.getByRole('dialog', { name: /account details/i })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /refresh tokens/i }))
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/token/refresh',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ alias: 'alpha' })
+        })
+      )
+    })
+  })
+
+  test('drawer refresh tokens shows error notification when API result has updated and error', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation((input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/token/refresh')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, results: [{ alias: 'alpha', updated: true, error: 'Auth write failed' }] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          })
+        )
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(mockState), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      )
+    })
+
+    render(
+      <>
+        <AccountsPage />
+        <NotificationProbe />
+      </>,
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(screen.getAllByText('alpha')[0]).toBeInTheDocument())
+
+    const alphaRow = screen.getAllByText('alpha')[0].closest('tr')
+    if (!alphaRow) throw new Error('Row not found')
+    fireEvent.click(alphaRow)
+
+    await waitFor(() => expect(screen.getByRole('dialog', { name: /account details/i })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /refresh tokens/i }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('notification-probe').textContent).toMatch(/Auth write failed|Failed to refresh tokens for alpha/)
+    })
+    expect(screen.queryByText('Tokens refreshed for alpha')).not.toBeInTheDocument()
+  })
+
+  test('drawer refresh limits sends that account alias and shows queued notification while queue is running', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/limits/refresh')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, queue: { running: true, total: 3, completed: 0, errors: 0, pending: 3 } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          })
+        )
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(mockState), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      )
+    })
+
+    render(
+      <>
+        <AccountsPage />
+        <NotificationProbe />
+      </>,
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(screen.getAllByText('alpha')[0]).toBeInTheDocument())
+
+    const alphaRow = screen.getAllByText('alpha')[0].closest('tr')
+    if (!alphaRow) throw new Error('Row not found')
+    fireEvent.click(alphaRow)
+
+    await waitFor(() => expect(screen.getByRole('dialog', { name: /account details/i })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /refresh limits/i }))
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/limits/refresh',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ alias: 'alpha' })
+        })
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('notification-probe').textContent).toContain('Limit refresh queued for alpha')
+    })
+    expect(screen.queryByText('Limits refreshed for alpha')).not.toBeInTheDocument()
   })
 })
