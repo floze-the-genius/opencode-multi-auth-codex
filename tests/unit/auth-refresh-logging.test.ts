@@ -134,4 +134,89 @@ describe('refreshToken logging', () => {
     expect(logInfo).toHaveBeenCalledWith(expect.stringContaining('Token refreshed for alpha'))
     fetchMock.mockRestore()
   })
+
+  it('deduplicates concurrent refreshes for the same alias', async () => {
+    const refreshedAccount = {
+      alias: 'alpha',
+      accessToken: 'shared-next-access-token',
+      refreshToken: 'shared-next-refresh-token',
+      expiresAt: Date.now() + 3600_000,
+      usageCount: 0
+    }
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        access_token: 'shared-next-access-token',
+        refresh_token: 'shared-next-refresh-token',
+        expires_in: 3600,
+        token_type: 'Bearer'
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    )
+    updateAccount.mockReturnValue({ accounts: { alpha: refreshedAccount } })
+
+    const [first, second] = await Promise.all([refreshToken('alpha'), refreshToken('alpha')])
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(first).toBe(refreshedAccount)
+    expect(second).toBe(refreshedAccount)
+    fetchMock.mockRestore()
+  })
+
+  it('keeps concurrent refreshes for distinct aliases independent', async () => {
+    loadStore.mockReturnValue({
+      accounts: {
+        alpha: {
+          alias: 'alpha',
+          accessToken: 'old-access-alpha',
+          refreshToken: 'refresh-token-alpha',
+          expiresAt: Date.now() + 60_000,
+          usageCount: 0
+        },
+        beta: {
+          alias: 'beta',
+          accessToken: 'old-access-beta',
+          refreshToken: 'refresh-token-beta',
+          expiresAt: Date.now() + 60_000,
+          usageCount: 0
+        }
+      },
+      activeAlias: 'alpha',
+      rotationIndex: 0,
+      lastRotation: Date.now()
+    })
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        access_token: 'next-access-token',
+        refresh_token: 'next-refresh-token',
+        expires_in: 3600,
+        token_type: 'Bearer'
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    )
+    updateAccount.mockImplementation((alias: string) => ({
+      accounts: {
+        [alias as string]: {
+          alias,
+          accessToken: `next-access-${alias}`,
+          refreshToken: `next-refresh-${alias}`,
+          expiresAt: Date.now() + 3600_000,
+          usageCount: 0
+        }
+      }
+    }))
+
+    await Promise.all([refreshToken('alpha'), refreshToken('beta')])
+
+    const refreshTokens = fetchMock.mock.calls.map((call: Parameters<typeof fetch>) => {
+      const body = (call[1] as RequestInit).body as URLSearchParams
+      return body.get('refresh_token')
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(refreshTokens).toEqual(expect.arrayContaining(['refresh-token-alpha', 'refresh-token-beta']))
+    fetchMock.mockRestore()
+  })
 })
