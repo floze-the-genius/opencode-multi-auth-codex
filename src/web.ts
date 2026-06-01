@@ -1589,6 +1589,11 @@ export function startWebConsole(options?: { port?: number; host?: string }): htt
         loginAccount(alias, flow, { timeoutMs: LOGIN_TIMEOUT_MS })
           .then(() => {
             logInfo(`Re-auth completed for ${alias} by ${actor}`)
+            try {
+              writeCodexAuthForAlias(alias)
+            } catch (err) {
+              logError(`Failed to update codex auth for ${alias}: ${getSanitizedErrorMessage(err)}`)
+            }
             // Update account metadata
             updateAccount(alias, {
               lastRefresh: new Date().toISOString()

@@ -32,6 +32,8 @@ interface TokenResponse {
   token_type: string
 }
 
+const inFlightRefreshes = new Map<string, Promise<AccountCredentials | null>>()
+
 interface AuthorizationFlow {
   pkce: { verifier: string; challenge: string }
   state: string
@@ -271,7 +273,7 @@ export async function loginAccount(
   })
 }
 
-export async function refreshToken(alias: string): Promise<AccountCredentials | null> {
+async function performRefreshToken(alias: string): Promise<AccountCredentials | null> {
   const store = loadStore()
   const account = store.accounts[alias]
 
@@ -337,6 +339,23 @@ export async function refreshToken(alias: string): Promise<AccountCredentials | 
     const message = err instanceof Error ? err.message : String(err)
     logError(`[multi-auth] Refresh error for ${alias}: ${message}`)
     return null
+  }
+}
+
+export async function refreshToken(alias: string): Promise<AccountCredentials | null> {
+  const inFlight = inFlightRefreshes.get(alias)
+  if (inFlight) {
+    return inFlight
+  }
+
+  const refresh = performRefreshToken(alias)
+  inFlightRefreshes.set(alias, refresh)
+  try {
+    return await refresh
+  } finally {
+    if (inFlightRefreshes.get(alias) === refresh) {
+      inFlightRefreshes.delete(alias)
+    }
   }
 }
 

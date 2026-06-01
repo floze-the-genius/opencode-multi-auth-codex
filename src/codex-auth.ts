@@ -2,6 +2,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { addAccount, loadStore, updateAccount } from './store.js'
+import { logInfo } from './logger.js'
 import type { AccountCredentials } from './types.js'
 
 export interface CodexAuthTokens {
@@ -181,6 +182,26 @@ export function getExpiryFromClaims(claims: Record<string, any> | null): number 
   return undefined
 }
 
+function getIssuedAtFromClaims(claims: Record<string, any> | null): number | undefined {
+  if (!claims) return undefined
+  return typeof claims.iat === 'number' ? claims.iat : undefined
+}
+
+function hasNewerStoredToken(
+  existing: AccountCredentials,
+  authAccessClaims: Record<string, any> | null,
+  authExpiresAt: number
+): boolean {
+  const storedAccessClaims = decodeJwtPayload(existing.accessToken)
+  const storedIssuedAt = getIssuedAtFromClaims(storedAccessClaims)
+  const authIssuedAt = getIssuedAtFromClaims(authAccessClaims)
+  if (typeof storedIssuedAt === 'number' && typeof authIssuedAt === 'number') {
+    return storedIssuedAt > authIssuedAt
+  }
+
+  return existing.expiresAt > authExpiresAt
+}
+
 function fingerprintTokens(tokens: CodexAuthTokens): string {
   return `${tokens.access_token || ''}:${tokens.refresh_token || ''}:${tokens.id_token || ''}`
 }
@@ -349,7 +370,18 @@ export function syncCodexAuthFile(): {
   }
 
   if (alias) {
-    updateAccount(alias, update)
+    const existing = store.accounts[alias]
+    if (existing && hasNewerStoredToken(existing, accessClaims, expiresAt)) {
+      const metadataUpdate = { ...update }
+      delete metadataUpdate.accessToken
+      delete metadataUpdate.refreshToken
+      delete metadataUpdate.expiresAt
+      delete metadataUpdate.idToken
+      logInfo(`Skipped stale auth.json token overwrite for ${alias}`)
+      updateAccount(alias, metadataUpdate)
+    } else {
+      updateAccount(alias, update)
+    }
     return { alias, added: false, updated: true, authEmail: email, authAccountId: accountId }
   }
 
