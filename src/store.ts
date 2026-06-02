@@ -3,6 +3,15 @@ import * as path from 'path'
 import * as os from 'os'
 import * as crypto from 'node:crypto'
 import { hasMeaningfulRateLimits } from './rate-limits.js'
+import {
+  flushSync as flushMetricsSync,
+  getMetrics,
+  getMetricsStorePath,
+  mergeMetricsForMigration,
+  removeMetrics,
+  setMetrics
+} from './metrics-store.js'
+import type { MetricsData } from './metrics-store.js'
 import type {
   AccountStore,
   AccountCredentials,
@@ -28,7 +37,24 @@ function getStoreFile(): string {
 }
 
 const STORE_ENV_PASSPHRASE = 'CODEX_SOFT_STORE_PASSPHRASE'
-const CURRENT_STORE_VERSION = 2
+const CURRENT_STORE_VERSION = 3
+
+const ACCOUNT_METRIC_FIELDS = [
+  'lastRefresh',
+  'lastSeenAt',
+  'lastActiveUntil',
+  'lastUsed',
+  'usageCount',
+  'rateLimits',
+  'rateLimitHistory',
+  'limitStatus',
+  'limitError',
+  'lastLimitProbeAt',
+  'lastLimitErrorAt',
+  'limitsConfidence'
+] as const
+
+const ACCOUNT_METRIC_FIELD_SET = new Set<string>(ACCOUNT_METRIC_FIELDS)
 
 type EncryptedStoreFile = {
   encrypted: true
@@ -59,13 +85,18 @@ type StoreFileV2 = StoreFileV1 & {
   }
 }
 
-type AnyStoreFile = StoreFileV1 | StoreFileV2
+type StoreFileV3 = Omit<StoreFileV2, 'version'> & {
+  version: 3
+}
+
+type AnyStoreFile = StoreFileV1 | StoreFileV2 | StoreFileV3
 
 let storeLocked = false
 let lastStoreError: string | null = null
 let lastStoreEncrypted = false
 let writeLock = false
 let writeLockQueue: Array<() => void> = []
+let storeSavedDuringMigration = false
 
 function ensureDir(): void {
   const dir = getStoreDir()
@@ -217,7 +248,8 @@ function validateStore(data: any): AccountStore | null {
     forcedBy: data.forcedBy ?? null,
     // Phase F: Preserve rotation strategy and settings
     rotationStrategy: data.rotationStrategy ?? 'round-robin',
-    settings: data.settings ?? undefined
+    settings: data.settings ?? undefined,
+    stickySessions: data.stickySessions ?? undefined
   }
 }
 
@@ -237,6 +269,149 @@ function migrateV1toV2(data: StoreFileV1): StoreFileV2 {
   }
 }
 
+function isLimitStatus(value: unknown): value is MetricsData['limitStatus'] {
+  return (
+    value === 'idle' ||
+    value === 'queued' ||
+    value === 'running' ||
+    value === 'success' ||
+    value === 'error' ||
+    value === 'stopped'
+  )
+}
+
+function isLimitsConfidence(value: unknown): value is MetricsData['limitsConfidence'] {
+  return value === 'fresh' || value === 'stale' || value === 'error' || value === 'unknown'
+}
+
+function extractAccountMetrics(acc: any): MetricsData {
+  const metrics: MetricsData = {}
+  if (!acc || typeof acc !== 'object') return metrics
+
+  if (typeof acc.lastRefresh === 'string') metrics.lastRefresh = acc.lastRefresh
+  if (typeof acc.lastSeenAt === 'number') metrics.lastSeenAt = acc.lastSeenAt
+  if (typeof acc.lastActiveUntil === 'number') metrics.lastActiveUntil = acc.lastActiveUntil
+  if (typeof acc.lastUsed === 'number') metrics.lastUsed = acc.lastUsed
+  if (typeof acc.usageCount === 'number') metrics.usageCount = acc.usageCount
+  if (hasMeaningfulRateLimits(acc.rateLimits)) metrics.rateLimits = acc.rateLimits
+  if (Array.isArray(acc.rateLimitHistory)) {
+    const history = acc.rateLimitHistory.filter((entry: any) =>
+      hasMeaningfulRateLimits({ fiveHour: entry?.fiveHour, weekly: entry?.weekly })
+    )
+    if (history.length > 0) metrics.rateLimitHistory = history
+  }
+  if (isLimitStatus(acc.limitStatus)) metrics.limitStatus = acc.limitStatus
+  if (typeof acc.limitError === 'string') metrics.limitError = acc.limitError
+  if (typeof acc.lastLimitProbeAt === 'number') metrics.lastLimitProbeAt = acc.lastLimitProbeAt
+  if (typeof acc.lastLimitErrorAt === 'number') metrics.lastLimitErrorAt = acc.lastLimitErrorAt
+  if (isLimitsConfidence(acc.limitsConfidence)) metrics.limitsConfidence = acc.limitsConfidence
+
+  return metrics
+}
+
+function hasMetrics(metrics: MetricsData): boolean {
+  return Object.keys(metrics).some((key) => metrics[key as keyof MetricsData] !== undefined)
+}
+
+function stripAccountMetrics(acc: any): any {
+  if (!acc || typeof acc !== 'object') return acc
+  const next = { ...acc }
+  for (const field of ACCOUNT_METRIC_FIELDS) {
+    delete next[field]
+  }
+  return next
+}
+
+function pickAccountMetricUpdates(acc: Partial<AccountCredentials>): MetricsData {
+  const metrics: MetricsData = {}
+  for (const field of ACCOUNT_METRIC_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(acc, field)) {
+      ;(metrics as any)[field] = acc[field as keyof AccountCredentials]
+    }
+  }
+  return metrics
+}
+
+function hasAccountMetricUpdates(acc: Partial<AccountCredentials>): boolean {
+  return ACCOUNT_METRIC_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(acc, field))
+}
+
+function hasAccountStateUpdates(acc: Partial<AccountCredentials>): boolean {
+  return Object.keys(acc).some((field) => !ACCOUNT_METRIC_FIELD_SET.has(field))
+}
+
+function stripStoreMetrics(store: AccountStore): AccountStore {
+  const accounts = Object.fromEntries(
+    Object.entries(store.accounts).map(([alias, account]) => [alias, stripAccountMetrics(account)])
+  ) as Record<string, AccountCredentials>
+  return { ...store, version: 3, accounts }
+}
+
+function writeMetricsSidecarFirst(data: any): boolean {
+  const rawAccounts = data.accounts && typeof data.accounts === 'object'
+    ? data.accounts as Record<string, any>
+    : {}
+  for (const [alias, account] of Object.entries(rawAccounts)) {
+    const metrics = extractAccountMetrics(account)
+    if (hasMetrics(metrics)) {
+      mergeMetricsForMigration(alias, metrics)
+    }
+  }
+
+  try {
+    flushMetricsSync(true)
+    return true
+  } catch (err) {
+    console.warn('[multi-auth] Deferred account store v3 migration because account metrics sidecar could not be written:', err)
+    return false
+  }
+}
+
+function persistStateOnlyV3(data: any): AccountStore | null {
+  const rawAccounts = data.accounts && typeof data.accounts === 'object'
+    ? data.accounts as Record<string, any>
+    : {}
+  const strippedRaw = Object.fromEntries(
+    Object.entries(rawAccounts).map(([alias, account]) => [alias, stripAccountMetrics(account)])
+  )
+  const validated = validateStore({ ...data, version: 3, accounts: strippedRaw })
+  if (!validated) return null
+  const stateOnly = stripStoreMetrics(validated)
+  // saveStore keeps the credentials file crash-safe via atomic rename plus .bak/.lkg recovery cues.
+  saveStore(stateOnly)
+  storeSavedDuringMigration = true
+  return stateOnly
+}
+
+function migrateV2toV3(data: StoreFileV2): AccountStore | null {
+  if (!writeMetricsSidecarFirst(data)) {
+    return validateStore(data)
+  }
+  const migrated = persistStateOnlyV3(data)
+  if (migrated) {
+    console.log('[multi-auth] Migrated store from v2 to v3')
+  }
+  // Keep the runtime view compatible until later phases route all readers through the metrics cache.
+  return validateStore({ ...data, version: 3 }) ?? migrated
+}
+
+function ensureV3MetricsSidecar(data: any): AccountStore | null {
+  const rawAccounts = data.accounts && typeof data.accounts === 'object'
+    ? data.accounts as Record<string, any>
+    : {}
+  const sidecarMissing = !fs.existsSync(getMetricsStorePath())
+
+  if (!sidecarMissing) {
+    return validateStore(data)
+  }
+
+  if (!writeMetricsSidecarFirst(data)) {
+    return validateStore(data)
+  }
+
+  return validateStore(data)
+}
+
 function migrateStore(data: any): AccountStore | null {
   if (!data || typeof data !== 'object') return null
   
@@ -251,6 +426,14 @@ function migrateStore(data: any): AccountStore | null {
   if (version === 1) {
     migrated = migrateV1toV2(data as StoreFileV1)
     console.log('[multi-auth] Migrated store from v1 to v2')
+  }
+
+  if (version < 3) {
+    return migrateV2toV3(migrated as StoreFileV2)
+  }
+
+  if (version === 3) {
+    return ensureV3MetricsSidecar(migrated)
   }
   
   return validateStore(migrated)
@@ -368,9 +551,11 @@ export function loadStore(): AccountStore {
         }
         try {
           const decrypted = decryptStore(parsed, passphrase)
-          const validated = validateStore(decrypted)
+          const validated = migrateStore(decrypted)
           if (validated) {
-            saveLastKnownGood(validated)
+            const savedDuringMigration = storeSavedDuringMigration
+            storeSavedDuringMigration = false
+            if (!savedDuringMigration) saveLastKnownGood(validated)
             return validated
           }
           storeLocked = true
@@ -391,7 +576,9 @@ export function loadStore(): AccountStore {
       
       const migrated = migrateStore(parsed)
       if (migrated) {
-        saveLastKnownGood(migrated)
+        const savedDuringMigration = storeSavedDuringMigration
+        storeSavedDuringMigration = false
+        if (!savedDuringMigration) saveLastKnownGood(migrated)
         return migrated
       }
       
@@ -429,7 +616,19 @@ export function saveStore(store: AccountStore): void {
 
   const file = getStoreFile()
   const passphrase = getPassphrase()
-  const payload = passphrase ? encryptStore(store, passphrase) : store
+  if (!fs.existsSync(getMetricsStorePath())) {
+    for (const [alias, account] of Object.entries(store.accounts)) {
+      const metrics = extractAccountMetrics(account)
+      // validateAccount supplies usageCount: 0 as a compatibility default for state-only
+      // records; do not let unrelated state saves overwrite richer cached telemetry with it.
+      if (metrics.usageCount === 0) delete metrics.usageCount
+      if (hasMetrics(metrics)) {
+        setMetrics(alias, metrics)
+      }
+    }
+  }
+  const stateOnlyStore = stripStoreMetrics(store)
+  const payload = passphrase ? encryptStore(stateOnlyStore, passphrase) : stateOnlyStore
   const json = JSON.stringify(payload, null, 2)
 
   try {
@@ -500,7 +699,27 @@ export function saveStore(store: AccountStore): void {
     // ignore
   }
 
-  saveLastKnownGood(store)
+  saveLastKnownGood(stateOnlyStore)
+}
+
+function mergeAccountMetrics(account: AccountCredentials): AccountCredentials {
+  const metrics = getMetrics(account.alias)
+  if (!metrics) return account
+  return {
+    ...account,
+    ...metrics,
+    usageCount: metrics.usageCount ?? account.usageCount ?? 0
+  }
+}
+
+export function loadStoreWithMetrics(): AccountStore {
+  const store = loadStore()
+  return {
+    ...store,
+    accounts: Object.fromEntries(
+      Object.entries(store.accounts).map(([alias, account]) => [alias, mergeAccountMetrics(account)])
+    ) as Record<string, AccountCredentials>
+  }
 }
 
 export async function withWriteLock<T>(fn: () => T): Promise<T> {
@@ -531,13 +750,19 @@ export function getStoreDiagnostics(): {
 
 export function addAccount(alias: string, creds: Omit<AccountCredentials, 'alias' | 'usageCount'>): AccountStore {
   const store = loadStore()
-  const entry = buildHistoryEntry(creds.rateLimits)
-  store.accounts[alias] = {
-    ...creds,
-    alias,
-    usageCount: 0,
-    rateLimitHistory: entry ? [entry] : creds.rateLimitHistory
+  const existing = store.accounts[alias]
+  if (hasAccountMetricUpdates(creds)) {
+    setMetrics(alias, pickAccountMetricUpdates(creds))
   }
+  const stateCreds = stripAccountMetrics(creds) as Omit<AccountCredentials, 'alias' | 'usageCount'>
+  const next: AccountCredentials = {
+    ...(existing ?? {}),
+    ...stateCreds,
+    alias,
+    usageCount: existing?.usageCount ?? 0
+  }
+
+  store.accounts[alias] = next
   if (!store.activeAlias) {
     store.activeAlias = alias
   }
@@ -548,6 +773,7 @@ export function addAccount(alias: string, creds: Omit<AccountCredentials, 'alias
 export function removeAccount(alias: string): AccountStore {
   const store = loadStore()
   delete store.accounts[alias]
+  removeMetrics(alias)
   if (store.activeAlias === alias) {
     const remaining = Object.keys(store.accounts)
     store.activeAlias = remaining[0] || null
@@ -559,16 +785,17 @@ export function removeAccount(alias: string): AccountStore {
 export function updateAccount(alias: string, updates: Partial<AccountCredentials>): AccountStore {
   const store = loadStore()
   if (store.accounts[alias]) {
-    const current = store.accounts[alias]
-    const next = { ...current, ...updates }
-    if (updates.rateLimits || next.rateLimits) {
-      const entry = buildHistoryEntry(next.rateLimits)
-      if (entry) {
-        next.rateLimitHistory = appendHistory(current.rateLimitHistory, entry)
-      }
+    if (hasAccountMetricUpdates(updates)) {
+      setMetrics(alias, pickAccountMetricUpdates(updates))
     }
-    store.accounts[alias] = next
-    saveStore(store)
+
+    const stateUpdates = stripAccountMetrics(updates) as Partial<AccountCredentials>
+    if (hasAccountStateUpdates(updates)) {
+      const current = store.accounts[alias]
+      const next = { ...current, ...stateUpdates }
+      store.accounts[alias] = next
+      saveStore(store)
+    }
   }
   return store
 }
@@ -582,18 +809,11 @@ export function setActiveAlias(alias: string | null): AccountStore {
     store.activeAlias = null
   } else if (store.accounts[alias]) {
     if (previousAlias && previousAlias !== alias && store.accounts[previousAlias]) {
-      store.accounts[previousAlias] = {
-        ...store.accounts[previousAlias],
-        lastActiveUntil: now
-      }
+      setMetrics(previousAlias, { lastActiveUntil: now })
     }
 
     store.activeAlias = alias
-    store.accounts[alias] = {
-      ...store.accounts[alias],
-      lastSeenAt: now,
-      lastActiveUntil: undefined
-    }
+    setMetrics(alias, { lastSeenAt: now, lastActiveUntil: undefined })
 
     const aliases = Object.keys(store.accounts)
     const idx = aliases.indexOf(alias)

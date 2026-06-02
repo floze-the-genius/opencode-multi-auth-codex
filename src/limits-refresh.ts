@@ -6,6 +6,7 @@ import {
 } from './rate-limits.js'
 import { markAuthInvalid, markWorkspaceDeactivated } from './rotation.js'
 import { loadStore, updateAccount } from './store.js'
+import { setMetrics, updateRateLimits } from './metrics-store.js'
 import { probeRateLimitsForAccount } from './probe-limits.js'
 import { logError, logInfo } from './logger.js'
 import { DEFAULT_CONFIG, calculateLimitsConfidence } from './types.js'
@@ -19,18 +20,21 @@ export interface LimitRefreshResult {
 }
 
 export async function refreshRateLimitsForAccount(account: AccountCredentials): Promise<LimitRefreshResult> {
-  updateAccount(account.alias, { limitStatus: 'running', limitError: undefined })
+  setMetrics(account.alias, { limitStatus: 'running', limitError: undefined })
   logInfo(`Refreshing limits for ${account.alias}`)
   const usage = await fetchUsageRateLimitsForAccount(account)
 
   if (usage.rateLimits) {
     const now = Date.now()
-    const updates: Partial<AccountCredentials> = {
-      rateLimits: mergeRateLimits(account.rateLimits, usage.rateLimits),
+    const mergedRateLimits = mergeRateLimits(account.rateLimits, usage.rateLimits)
+    updateRateLimits(account.alias, mergedRateLimits)
+    setMetrics(account.alias, {
       limitStatus: 'success',
       limitError: undefined,
       lastLimitProbeAt: now,
-      limitsConfidence: calculateLimitsConfidence(now, account.lastLimitErrorAt, 'success'),
+      limitsConfidence: calculateLimitsConfidence(now, account.lastLimitErrorAt, 'success')
+    })
+    const updates: Partial<AccountCredentials> = {
       authInvalid: false,
       authInvalidatedAt: undefined
     }
@@ -39,6 +43,8 @@ export async function refreshRateLimitsForAccount(account: AccountCredentials): 
     }
     if (typeof usage.rateLimitedUntil === 'number' && usage.rateLimitedUntil > now) {
       updates.rateLimitedUntil = usage.rateLimitedUntil
+    } else {
+      updates.rateLimitedUntil = undefined
     }
     updateAccount(account.alias, updates)
     logInfo(`Limits refreshed for ${account.alias} via usage API`)
@@ -59,7 +65,7 @@ export async function refreshRateLimitsForAccount(account: AccountCredentials): 
         )
       }
 
-      updateAccount(account.alias, {
+      setMetrics(account.alias, {
         limitStatus: 'error',
         limitError: usage.error,
         lastLimitErrorAt: now,
@@ -95,7 +101,7 @@ export async function refreshRateLimitsForAccount(account: AccountCredentials): 
       : undefined
     const rateLimitedUntil = parsedResetAt ?? fallbackResetAt
     
-    const updates: Partial<AccountCredentials> = {
+    setMetrics(account.alias, {
       limitStatus: 'error',
       limitError: errorText,
       lastLimitErrorAt: now,
@@ -104,11 +110,14 @@ export async function refreshRateLimitsForAccount(account: AccountCredentials): 
         now,
         'error'
       )
-    }
+    })
+    const updates: Partial<AccountCredentials> = {}
     if (typeof rateLimitedUntil === 'number' && rateLimitedUntil > now) {
       updates.rateLimitedUntil = rateLimitedUntil
     }
-    updateAccount(account.alias, updates)
+    if (Object.keys(updates).length > 0) {
+      updateAccount(account.alias, updates)
+    }
     return {
       alias: account.alias,
       updated: false,
@@ -119,12 +128,14 @@ export async function refreshRateLimitsForAccount(account: AccountCredentials): 
   const now = Date.now()
   const mergedRateLimits = mergeRateLimits(account.rateLimits, probe.rateLimits)
   const blockingResetAt = getBlockingRateLimitResetAt(mergedRateLimits, now)
-  updateAccount(account.alias, {
-    rateLimits: mergedRateLimits,
+  updateRateLimits(account.alias, mergedRateLimits)
+  setMetrics(account.alias, {
     limitStatus: 'success',
     limitError: undefined,
     lastLimitProbeAt: now,
-    limitsConfidence: calculateLimitsConfidence(now, account.lastLimitErrorAt, 'success'),
+    limitsConfidence: calculateLimitsConfidence(now, account.lastLimitErrorAt, 'success')
+  })
+  updateAccount(account.alias, {
     rateLimitedUntil: blockingResetAt,
     authInvalid: false,
     authInvalidatedAt: undefined

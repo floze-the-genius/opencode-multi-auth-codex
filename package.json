@@ -9,20 +9,28 @@
     "opencode-multi-auth": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "pnpm run build:backend && pnpm run build:web",
+    "build:backend": "tsc",
+    "build:web": "pnpm --dir web run build",
     "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "verify:static": "pnpm run typecheck && pnpm --dir web lint && pnpm --dir web typecheck",
+    "verify:plan": "pnpm run verify:static && pnpm run test",
+    "package:manual-approval": "echo Production build/package validation is deferred until explicit approval",
     "web": "node ./dist/cli.js web --port 3434 --host 127.0.0.1",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test": "pnpm run test:backend && pnpm run test:frontend",
+    "test:backend": "pnpm run test:unit && pnpm run test:integration && pnpm run test:web:headless",
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/unit",
     "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/integration",
+    "test:integration:dashboard-contract": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/integration/dashboard-api-contract.test.ts",
+    "test:frontend": "pnpm --dir web test",
     "test:web:headless": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/web-headless",
     "test:failure": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/failure",
     "test:stress": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/stress",
     "test:sandbox": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/sandbox",
     "test:soak:48h": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/soak",
-    "lint": "tsc --noEmit"
+    "lint": "pnpm run typecheck"
   },
-  "dependencies": {},
   "peerDependencies": {
     "@opencode-ai/plugin": "^1.0.150"
   },
@@ -59,6 +67,7 @@
     "oauth",
     "multi-account"
   ],
+  "packageManager": "pnpm@11.5.0",
   "author": "a3fckx",
   "license": "MIT"
 }

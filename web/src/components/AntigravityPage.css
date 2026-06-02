@@ -1,0 +1,168 @@
+.antigravity-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.antigravity-breadcrumb {
+  margin-bottom: var(--spacing-sm);
+}
+
+.antigravity-breadcrumb-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: var(--spacing-xs) 0;
+  transition: color 0.15s;
+}
+
+.antigravity-breadcrumb-link:hover {
+  color: var(--accent-hover, var(--accent));
+  text-decoration: underline;
+}
+
+.antigravity-loading,
+.antigravity-error {
+  padding: var(--spacing-xl);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.antigravity-error {
+  color: var(--error);
+}
+
+.antigravity-section {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--spacing-lg);
+}
+
+.section-title {
+  margin: 0 0 var(--spacing-md) 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.section-subtitle {
+  margin: 0 0 var(--spacing-md) 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--spacing-md);
+}
+
+.meta-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md);
+  background-color: var(--panel);
+  border-radius: var(--radius);
+}
+
+.meta-label {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.meta-value {
+  font-size: 1.125rem;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.meta-value-small {
+  font-size: 0.875rem;
+}
+
+.antigravity-notice {
+  padding: var(--spacing-md);
+  border-radius: var(--radius);
+  background-color: var(--panel);
+  border: 1px solid var(--border);
+  margin-bottom: var(--spacing-md);
+}
+
+.antigravity-notice--warning {
+  border-color: var(--warning);
+  background-color: rgba(210, 153, 34, 0.1);
+}
+
+.antigravity-notice--info {
+  border-color: var(--accent);
+  background-color: rgba(88, 166, 255, 0.1);
+  margin-top: var(--spacing-md);
+  margin-bottom: 0;
+}
+
+.actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.actions-row button.secondary {
+  background-color: transparent;
+  border-color: var(--border);
+}
+
+.antigravity-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.antigravity-account-card {
+  padding: var(--spacing-md);
+  background-color: var(--panel);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.antigravity-account-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+}
+
+.antigravity-account-meta {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.token-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.token-present {
+  background-color: rgba(63, 185, 80, 0.15);
+  color: var(--success);
+}
+
+.token-missing {
+  background-color: rgba(248, 81, 73, 0.15);
+  color: var(--error);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

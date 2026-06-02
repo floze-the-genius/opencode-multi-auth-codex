@@ -8,6 +8,7 @@ import { once } from 'node:events'
 const SANDBOX_ROOT = path.join(os.tmpdir(), 'oma-web-headless-sandbox')
 const STORE_FILE = path.join(SANDBOX_ROOT, 'accounts.json')
 const AUTH_FILE = path.join(SANDBOX_ROOT, 'auth.json')
+const WEB_DIST_DIR = path.resolve(process.cwd(), 'tests/fixtures/web-dist')
 const originalEnv = process.env
 
 let startWebConsole: typeof import('../../src/web.js').startWebConsole
@@ -58,7 +59,8 @@ beforeAll(async () => {
     ...originalEnv,
     OPENCODE_MULTI_AUTH_STORE_DIR: SANDBOX_ROOT,
     OPENCODE_MULTI_AUTH_STORE_FILE: STORE_FILE,
-    OPENCODE_MULTI_AUTH_CODEX_AUTH_FILE: AUTH_FILE
+    OPENCODE_MULTI_AUTH_CODEX_AUTH_FILE: AUTH_FILE,
+    OPENCODE_MULTI_AUTH_WEB_DIST_DIR: WEB_DIST_DIR
   }
 
   ;({ startWebConsole } = await import('../../src/web.js'))
@@ -80,23 +82,50 @@ afterAll(() => {
 })
 
 describe('dashboard headless smoke', () => {
-  it('serves parsable client script', async () => {
+  it('serves the fixture-backed SPA entry while preserving backend JSON routes', async () => {
     const port = await getFreePort()
     const server = startWebConsole({ host: '127.0.0.1', port })
 
     try {
       await once(server, 'listening')
-      const response = await fetch(`http://127.0.0.1:${port}/`)
-      expect(response.status).toBe(200)
+      const homeResponse = await fetch(`http://127.0.0.1:${port}/`)
+      expect(homeResponse.status).toBe(200)
+      expect(homeResponse.headers.get('content-type')).toContain('text/html')
+      expect(await homeResponse.text()).toContain('fixture-spa-shell')
 
-      const html = await response.text()
-      const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/)
-      expect(scriptMatch).toBeTruthy()
-
-      const scriptContent = scriptMatch?.[1] || ''
-      expect(() => new Function(scriptContent)).not.toThrow()
+      const stateResponse = await fetch(`http://127.0.0.1:${port}/api/state`)
+      expect(stateResponse.status).toBe(200)
+      expect(stateResponse.headers.get('content-type')).toContain('application/json')
+      expect((await stateResponse.json()) as { authPath?: string }).toEqual(
+        expect.objectContaining({ authPath: AUTH_FILE })
+      )
     } finally {
       await closeServer(server)
+      fs.unwatchFile(getCodexAuthPath())
+    }
+  })
+
+  it('fails closed when SPA dist assets are unavailable instead of serving the legacy inline dashboard', async () => {
+    const port = await getFreePort()
+    const missingDistDir = path.join(SANDBOX_ROOT, 'missing-dist')
+    process.env.OPENCODE_MULTI_AUTH_WEB_DIST_DIR = missingDistDir
+
+    const server = startWebConsole({ host: '127.0.0.1', port })
+
+    try {
+      await once(server, 'listening')
+
+      const homeResponse = await fetch(`http://127.0.0.1:${port}/`)
+      expect(homeResponse.status).toBe(404)
+      expect(homeResponse.headers.get('content-type')).toContain('application/json')
+      expect((await homeResponse.json()) as { error?: string }).toEqual({ error: 'Not found' })
+
+      const stateResponse = await fetch(`http://127.0.0.1:${port}/api/state`)
+      expect(stateResponse.status).toBe(200)
+      expect(stateResponse.headers.get('content-type')).toContain('application/json')
+    } finally {
+      await closeServer(server)
+      process.env.OPENCODE_MULTI_AUTH_WEB_DIST_DIR = WEB_DIST_DIR
       fs.unwatchFile(getCodexAuthPath())
     }
   })

@@ -1,4 +1,4 @@
-import { isCyberPolicyError } from '../../src/index.js'
+import { isCyberPolicyError } from '../../src/cyber-policy.js'
 
 describe('cyber policy errors', () => {
   it('detects OpenAI cyber_policy error codes', () => {

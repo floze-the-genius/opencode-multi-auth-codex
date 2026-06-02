@@ -2,7 +2,9 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { addAccount, loadStore, updateAccount } from './store.js'
-import type { AccountCredentials } from './types.js'
+import { setMetrics } from './metrics-store.js'
+import { logInfo } from './logger.js'
+import type { AccountCredentials, AccountStore, CodexActiveState } from './types.js'
 
 export interface CodexAuthTokens {
   id_token?: string
@@ -60,6 +62,7 @@ export function loadCodexAuthFile(): CodexAuthFile | null {
   if (!fs.existsSync(CODEX_AUTH_FILE)) return null
   try {
     const raw = fs.readFileSync(CODEX_AUTH_FILE, 'utf-8')
+    if (!raw.trim()) return null
     return JSON.parse(raw) as CodexAuthFile
   } catch (err) {
     lastAuthError = 'Failed to parse codex auth.json'
@@ -181,6 +184,26 @@ export function getExpiryFromClaims(claims: Record<string, any> | null): number 
   return undefined
 }
 
+function getIssuedAtFromClaims(claims: Record<string, any> | null): number | undefined {
+  if (!claims) return undefined
+  return typeof claims.iat === 'number' ? claims.iat : undefined
+}
+
+function hasNewerStoredToken(
+  existing: AccountCredentials,
+  authAccessClaims: Record<string, any> | null,
+  authExpiresAt: number
+): boolean {
+  const storedAccessClaims = decodeJwtPayload(existing.accessToken)
+  const storedIssuedAt = getIssuedAtFromClaims(storedAccessClaims)
+  const authIssuedAt = getIssuedAtFromClaims(authAccessClaims)
+  if (typeof storedIssuedAt === 'number' && typeof authIssuedAt === 'number') {
+    return storedIssuedAt > authIssuedAt
+  }
+
+  return existing.expiresAt > authExpiresAt
+}
+
 function fingerprintTokens(tokens: CodexAuthTokens): string {
   return `${tokens.access_token || ''}:${tokens.refresh_token || ''}:${tokens.id_token || ''}`
 }
@@ -230,8 +253,7 @@ function findMatchingAlias(
   return null
 }
 
-export function getCodexAuthSummary(): CodexAuthSummary {
-  const auth = loadCodexAuthFile()
+function buildCodexAuthSummary(auth: CodexAuthFile | null): CodexAuthSummary {
   const normalized = normalizeTokens(auth)
   const access = normalized?.accessToken
   const refresh = normalized?.refreshToken
@@ -256,6 +278,84 @@ export function getCodexAuthSummary(): CodexAuthSummary {
     hasRefreshToken: Boolean(refresh),
     hasIdToken: Boolean(idToken)
   }
+}
+
+function readCodexAuthFileReadOnly(): { auth: CodexAuthFile | null; error?: string } {
+  if (!fs.existsSync(CODEX_AUTH_FILE)) return { auth: null }
+
+  let raw: string
+  try {
+    raw = fs.readFileSync(CODEX_AUTH_FILE, 'utf-8')
+  } catch {
+    return { auth: null, error: 'Failed to read codex auth.json' }
+  }
+
+  if (!raw.trim()) return { auth: null }
+
+  try {
+    return { auth: JSON.parse(raw) as CodexAuthFile }
+  } catch {
+    return { auth: null, error: 'Failed to parse codex auth.json' }
+  }
+}
+
+function activeStateFromSummary(
+  status: CodexActiveState['status'],
+  alias: string | null,
+  summary: CodexAuthSummary,
+  error?: string
+): CodexActiveState {
+  return {
+    status,
+    alias,
+    email: summary.email,
+    accountId: summary.accountId,
+    accountUserId: summary.accountUserId,
+    userId: summary.userId,
+    planType: summary.planType,
+    expiresAt: summary.expiresAt,
+    lastRefresh: summary.lastRefresh,
+    hasAccessToken: summary.hasAccessToken,
+    hasRefreshToken: summary.hasRefreshToken,
+    hasIdToken: summary.hasIdToken,
+    error
+  }
+}
+
+export function getCodexAuthSummary(): CodexAuthSummary {
+  const { auth } = readCodexAuthFileReadOnly()
+  return buildCodexAuthSummary(auth)
+}
+
+export function getCodexActiveState(store?: AccountStore): CodexActiveState {
+  const { auth, error } = readCodexAuthFileReadOnly()
+  if (error) {
+    return activeStateFromSummary('error', null, buildCodexAuthSummary(null), error)
+  }
+
+  const normalized = normalizeTokens(auth)
+  const summary = buildCodexAuthSummary(auth)
+  const hasToken = summary.hasAccessToken || summary.hasRefreshToken || summary.hasIdToken
+  const hasIdentity = Boolean(summary.email || summary.accountId || summary.accountUserId || summary.userId)
+  if (!normalized || (!hasToken && !hasIdentity)) {
+    return activeStateFromSummary('missing', null, summary)
+  }
+
+  const targetStore = store ?? loadStore()
+  const alias = findMatchingAlias(
+    {
+      access_token: normalized.accessToken,
+      refresh_token: normalized.refreshToken,
+      id_token: normalized.idToken
+    },
+    summary.accountId,
+    summary.accountUserId,
+    summary.userId,
+    summary.email,
+    targetStore
+  )
+
+  return activeStateFromSummary(alias ? 'matched' : 'unknown', alias, summary)
 }
 
 export function resolveAliasForCurrentAuth(store?: ReturnType<typeof loadStore>): string | null {
@@ -340,8 +440,6 @@ export function syncCodexAuthFile(): {
     planType,
     expiresAt,
     email,
-    lastRefresh: normalized.lastRefresh,
-    lastSeenAt: now,
     source: 'codex'
   }
   if (normalized.idToken) {
@@ -349,12 +447,25 @@ export function syncCodexAuthFile(): {
   }
 
   if (alias) {
-    updateAccount(alias, update)
+    const existing = store.accounts[alias]
+    if (existing && hasNewerStoredToken(existing, accessClaims, expiresAt)) {
+      const metadataUpdate = { ...update }
+      delete metadataUpdate.accessToken
+      delete metadataUpdate.refreshToken
+      delete metadataUpdate.expiresAt
+      delete metadataUpdate.idToken
+      logInfo(`Skipped stale auth.json token overwrite for ${alias}`)
+      updateAccount(alias, metadataUpdate)
+    } else {
+      updateAccount(alias, update)
+    }
+    setMetrics(alias, { lastRefresh: normalized.lastRefresh, lastSeenAt: now })
     return { alias, added: false, updated: true, authEmail: email, authAccountId: accountId }
   }
 
   const newAlias = buildAlias(email, accountId, store)
   addAccount(newAlias, update as Omit<AccountCredentials, 'alias' | 'usageCount'>)
+  setMetrics(newAlias, { lastRefresh: normalized.lastRefresh, lastSeenAt: now })
   return { alias: newAlias, added: true, updated: true, authEmail: email, authAccountId: accountId }
 }
 
@@ -392,8 +503,10 @@ export function writeCodexAuthForAlias(alias: string): void {
 
   writeCodexAuthFile(auth)
   updateAccount(alias, {
-    lastRefresh: auth.last_refresh,
-    lastSeenAt: Date.now(),
     source: 'codex'
+  })
+  setMetrics(alias, {
+    lastRefresh: auth.last_refresh,
+    lastSeenAt: Date.now()
   })
 }

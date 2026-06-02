@@ -22,6 +22,14 @@ import * as os from 'os'
 const tmpDir = path.join(os.tmpdir(), 'oma-test-settings-' + Date.now())
 const originalEnv = process.env
 
+function readJson(file: string): any {
+  return JSON.parse(fs.readFileSync(file, 'utf8'))
+}
+
+function writeJson(file: string, value: unknown): void {
+  fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf8')
+}
+
 describe('Phase F: Settings + Weighted Rotation', () => {
   beforeEach(() => {
     process.env = { ...originalEnv }
@@ -296,6 +304,22 @@ describe('Phase F: Settings + Weighted Rotation', () => {
       
       // account1 has better limits (85% avg) vs account2 (45% avg)
       // So account1 should have higher weight
+      const weights = result.settings?.accountWeights || {}
+      expect(weights.account1).toBeGreaterThan(weights.account2)
+    })
+
+    it('should compute health-based weights from cache-backed rate limits when accounts are state-only', () => {
+      const accountsPath = path.join(tmpDir, 'accounts.json')
+      const persisted = readJson(accountsPath)
+      delete persisted.accounts.account1.rateLimits
+      delete persisted.accounts.account1.rateLimitHistory
+      delete persisted.accounts.account2.rateLimits
+      delete persisted.accounts.account2.rateLimitHistory
+      writeJson(accountsPath, persisted)
+
+      const result = applyPreset('conservative', 'test')
+
+      expect(result.success).toBe(true)
       const weights = result.settings?.accountWeights || {}
       expect(weights.account1).toBeGreaterThan(weights.account2)
     })

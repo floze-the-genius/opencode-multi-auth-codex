@@ -11,3 +11,9 @@ node
 auto-login/credentials.json
 auto-login/debug_*.png
 auto-login/__pycache__/
+/.idea/
+/dist/
+/web/node_modules/
+opencode.json
+/.playwright-cli/
+/.agents/

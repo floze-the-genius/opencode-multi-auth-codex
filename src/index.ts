@@ -18,9 +18,19 @@ import {
 } from './rotation.js'
 import { getDefaultModels } from './models.js'
 import { getForceState, isForceActive } from './force-mode.js'
-import { getRuntimeSettings } from './settings.js'
+import { getRuntimeSettings, getStickySessionRuntimeSettings } from './settings.js'
 import { listAccounts, updateAccount, loadStore } from './store.js'
-import { DEFAULT_CONFIG, type AccountRateLimits, type PluginConfig } from './types.js'
+import { registerMetricsFlushHooks, updateRateLimits } from './metrics-store.js'
+import { resolveStickyIdentity } from './sticky-identity.js'
+import { hashStickyIdentity } from './sticky-sessions.js'
+import { logInfo } from './logger.js'
+import { extractErrorMessage, isCyberPolicyError } from './cyber-policy.js'
+import {
+  DEFAULT_CONFIG,
+  type AccountRateLimits,
+  type PluginConfig
+} from './types.js'
+import type { ResolvedStickyIdentity, StickyIdentitySource } from './types.js'
 import { Errors, type DeterministicError } from './errors.js'
 
 const PROVIDER_ID = 'openai'
@@ -168,46 +178,6 @@ function ensureContentType(headers: Headers): Headers {
   return responseHeaders
 }
 
-function extractErrorMessage(payload: any, fallbackText: string = ''): string {
-  if (!payload || typeof payload !== 'object') {
-    return fallbackText
-  }
-
-  const detailMessage = typeof payload?.detail?.message === 'string'
-    ? payload.detail.message
-    : typeof payload?.detail === 'string'
-      ? payload.detail
-      : ''
-
-  const errorMessage = typeof payload?.error?.message === 'string'
-    ? payload.error.message
-    : ''
-
-  const topLevelMessage = typeof payload?.message === 'string'
-    ? payload.message
-    : ''
-
-  return detailMessage || errorMessage || topLevelMessage || fallbackText
-}
-
-function extractErrorCode(payload: any): string {
-  if (!payload || typeof payload !== 'object') return ''
-
-  return (
-    (typeof payload?.detail?.code === 'string' && payload.detail.code) ||
-    (typeof payload?.error?.code === 'string' && payload.error.code) ||
-    (typeof payload?.code === 'string' && payload.code) ||
-    ''
-  )
-}
-
-export function isCyberPolicyError(payload: any, fallbackText: string = ''): boolean {
-  const code = extractErrorCode(payload).toLowerCase()
-  const text = `${extractErrorMessage(payload, fallbackText)} ${fallbackText}`.toLowerCase()
-
-  return code === 'cyber_policy' || text.includes('cyber_policy')
-}
-
 function resolveRateLimitedUntil(
   rateLimits: AccountRateLimits | undefined,
   headers: Headers,
@@ -281,6 +251,8 @@ async function convertSseToJson(response: Response, headers: Headers): Promise<R
  * Rotates between multiple ChatGPT Plus/Pro accounts for rate limit resilience.
  */
 const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, directory }: PluginInput) => {
+  registerMetricsFlushHooks()
+
   const terminalNotifierPath = (() => {
     const candidates = [
       '/opt/homebrew/bin/terminal-notifier',
@@ -658,8 +630,80 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
               rotationStrategy: settings.settings.rotationStrategy
             }
 
+            const sticky = settings.settings.featureFlags?.stickySessionsEnabled
+              ? (() => {
+                  const stickySettings = getStickySessionRuntimeSettings()
+                  const stickyHeaders = new Headers(init?.headers || {})
+                  const resolved = resolveStickyIdentity({
+                    headers: stickyHeaders,
+                    body,
+                    allowPromptCacheKey: stickySettings.allowPromptCacheKey,
+                    identitySources: stickySettings.identitySources
+                  })
+                  if (attempt === 1) {
+                    const present = {
+                      'header:session_id': Boolean(stickyHeaders.get('session_id')),
+                      'header:conversation_id': Boolean(stickyHeaders.get('conversation_id')),
+                      'body:metadata.session_id': Boolean(body?.metadata?.session_id),
+                      'body:metadata.conversation_id': Boolean(body?.metadata?.conversation_id),
+                      'body:prompt_cache_key': Boolean(body?.prompt_cache_key)
+                    }
+                    const presentList = Object.entries(present)
+                      .filter(([, v]) => v)
+                      .map(([k]) => k)
+                    const outcome = resolved
+                      ? `HIT source=${resolved.source} hash=${hashStickyIdentity(resolved.canonical).slice(0, 12)}`
+                      : 'MISS (no configured identity source present in request)'
+                    logInfo(
+                      `[sticky] identity resolution: ${outcome}; configured=[${stickySettings.identitySources.join(',')}] allowPromptCacheKey=${stickySettings.allowPromptCacheKey} present=[${presentList.join(',') || 'none'}]`
+                    )
+
+                    // Full diagnostic inventory: list every header + body identity candidate
+                    // (redacted to type + short hash, never raw values) to choose the
+                    // canonical identity source from evidence instead of guessing.
+                    const describeValue = (value: unknown): string => {
+                      if (value === undefined) return 'absent'
+                      if (value === null) return 'null'
+                      if (typeof value === 'string') {
+                        const trimmed = value.trim()
+                        if (trimmed.length === 0) return 'string(empty)'
+                        return `string(len=${trimmed.length},hash=${hashStickyIdentity(trimmed).slice(0, 12)})`
+                      }
+                      if (typeof value === 'object') return `object(keys=[${Object.keys(value as object).join(',') || 'none'}])`
+                      return `${typeof value}`
+                    }
+                    const headerKeys: string[] = []
+                    stickyHeaders.forEach((_, key) => headerKeys.push(key))
+                    const bodyTopKeys = body && typeof body === 'object' ? Object.keys(body) : []
+                    const metadata = body?.metadata
+                    const metadataKeys =
+                      metadata && typeof metadata === 'object' ? Object.keys(metadata as object) : []
+                    const idCandidates = [
+                      `header:session-id=${describeValue(stickyHeaders.get('session-id'))}`,
+                      `header:x-session-affinity=${describeValue(stickyHeaders.get('x-session-affinity'))}`,
+                      `header:originator=${describeValue(stickyHeaders.get('originator'))}`,
+                      `header:session_id=${describeValue(stickyHeaders.get('session_id'))}`,
+                      `header:conversation_id=${describeValue(stickyHeaders.get('conversation_id'))}`,
+                      `body.session_id=${describeValue((body as Record<string, unknown>)?.session_id)}`,
+                      `body.conversation_id=${describeValue((body as Record<string, unknown>)?.conversation_id)}`,
+                      `body.user=${describeValue((body as Record<string, unknown>)?.user)}`,
+                      `body.prompt_cache_key=${describeValue((body as Record<string, unknown>)?.prompt_cache_key)}`,
+                      `body.metadata.session_id=${describeValue((metadata as Record<string, unknown>)?.session_id)}`,
+                      `body.metadata.conversation_id=${describeValue((metadata as Record<string, unknown>)?.conversation_id)}`,
+                      `body.metadata.user_id=${describeValue((metadata as Record<string, unknown>)?.user_id)}`
+                    ]
+                    logInfo(
+                      `[sticky] request inventory: headerKeys=[${headerKeys.join(',') || 'none'}] bodyKeys=[${bodyTopKeys.join(',') || 'none'}] metadataKeys=[${metadataKeys.join(',') || 'none'}]`
+                    )
+                    logInfo(`[sticky] identity candidates: ${idCandidates.join(' | ')}`)
+                  }
+                  return resolved
+                })()
+              : null
+
             const rotation = await getNextAccount(effectiveConfig, {
-              model: normalizedModel
+              model: normalizedModel,
+              ...(sticky ? { sticky } : {})
             })
 
             if (!rotation) {
@@ -799,10 +843,10 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
                   : account.rateLimits
                 if (limitUpdate) {
                   const blockingResetAt = getBlockingRateLimitResetAt(mergedRateLimits)
-                  updateAccount(account.alias, {
-                    rateLimits: mergedRateLimits,
-                    rateLimitedUntil: blockingResetAt
-                  })
+                  if (mergedRateLimits) {
+                    updateRateLimits(account.alias, mergedRateLimits)
+                  }
+                  updateAccount(account.alias, { rateLimitedUntil: blockingResetAt })
                 }
 
                 return mergedRateLimits

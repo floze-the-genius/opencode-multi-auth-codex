@@ -47,6 +47,24 @@ export interface AccountCredentials {
   source?: 'opencode' | 'codex'
 }
 
+export type CodexActiveStatus = 'matched' | 'unknown' | 'missing' | 'error'
+
+export interface CodexActiveState {
+  status: CodexActiveStatus
+  alias: string | null
+  email?: string
+  accountId?: string
+  accountUserId?: string
+  userId?: string
+  planType?: string
+  expiresAt?: number
+  lastRefresh?: string
+  hasAccessToken: boolean
+  hasRefreshToken: boolean
+  hasIdToken: boolean
+  error?: string
+}
+
 export interface RateLimitWindow {
   limit?: number
   remaining?: number
@@ -126,6 +144,8 @@ export interface AccountStore {
   rotationStrategy?: 'round-robin' | 'least-used' | 'random' | 'weighted-round-robin'
   // Phase F: Settings
   settings?: RotationSettings
+  // Phase G: Sticky-session admin config persisted separately from /api/settings
+  stickySessions?: PersistedStickySessionSettings
 }
 
 // OpenAI model info
@@ -201,11 +221,75 @@ export interface RotationSettings {
 export interface FeatureFlags {
   // Antigravity integration (default: false)
   antigravityEnabled: boolean
+  // Sticky-session routing/persistence gate (default: false)
+  stickySessionsEnabled?: boolean
 }
 
 // Phase G: Default feature flags
 export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
-  antigravityEnabled: false
+  antigravityEnabled: false,
+  stickySessionsEnabled: false
+}
+
+// Phase G: Sticky identity sources used for canonical request matching
+export type StickyIdentitySource =
+  | 'header:x-session-affinity'
+  | 'header:session-id'
+  | 'header:session_id'
+  | 'header:conversation_id'
+  | 'body:metadata.session_id'
+  | 'body:metadata.conversation_id'
+  | 'body:prompt_cache_key'
+
+export const ALL_STICKY_IDENTITY_SOURCES: StickyIdentitySource[] = [
+  'header:x-session-affinity',
+  'header:session-id',
+  'header:session_id',
+  'header:conversation_id',
+  'body:metadata.session_id',
+  'body:metadata.conversation_id',
+  'body:prompt_cache_key'
+]
+
+// Phase G: Sticky-session policy shape (kept separate from the enablement flag)
+export interface StickySessionSettings {
+  identitySources: StickyIdentitySource[]
+  allowPromptCacheKey: boolean
+  ttlMs: number
+  maxEntries: number
+  maxFileBytes: number
+}
+
+export interface PersistedStickySessionSettings extends StickySessionSettings {
+  updatedAt?: number
+  updatedBy?: string
+}
+
+export interface StickySessionAdminConfig extends PersistedStickySessionSettings {
+  enabled: boolean
+}
+
+// Phase G: Canonical sticky identity resolved from a request
+export interface ResolvedStickyIdentity {
+  source: StickyIdentitySource
+  canonical: string
+  hash: string
+}
+
+// Phase G: Default sticky-session policy constants
+export const DEFAULT_STICKY_SESSION_SETTINGS: StickySessionSettings = {
+  identitySources: [
+    'header:x-session-affinity',
+    'header:session-id',
+    'header:session_id',
+    'header:conversation_id',
+    'body:metadata.session_id',
+    'body:metadata.conversation_id'
+  ],
+  allowPromptCacheKey: false,
+  ttlMs: 24 * 60 * 60 * 1000,
+  maxEntries: 1000,
+  maxFileBytes: 1024 * 1024
 }
 
 // Phase F: Weighted rotation presets

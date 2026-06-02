@@ -1,0 +1,237 @@
+.account-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 50;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.account-drawer {
+  width: 420px;
+  max-width: 90vw;
+  height: 100%;
+  background-color: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  box-shadow: var(--shadow-xl);
+}
+
+.account-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-lg) var(--spacing-xl);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.account-drawer-header h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.account-drawer-body {
+  padding: var(--spacing-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.drawer-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.drawer-section h4 {
+  margin: 0 0 var(--spacing-xs) 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.drawer-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.drawer-field:last-child {
+  border-bottom: none;
+}
+
+.drawer-label {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  min-width: 100px;
+  font-weight: 500;
+}
+
+.drawer-value {
+  word-break: break-word;
+  text-align: right;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.drawer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.drawer-actions button {
+  width: 100%;
+  justify-content: center;
+  border-radius: var(--radius);
+  font-weight: 500;
+}
+
+.icon-button {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 1.25rem;
+  line-height: 1;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-secondary);
+  border-radius: var(--radius);
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.icon-button:hover {
+  background: var(--surface-elevated);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.icon-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+input,
+textarea {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  width: 100%;
+  font-size: 0.875rem;
+  box-shadow: var(--shadow-inset);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2), var(--shadow-inset);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* Codex active banner at top of drawer body */
+.drawer-codex-active-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  color: #fbbf24;
+  line-height: 1.4;
+}
+
+.drawer-codex-active-banner code {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  opacity: 0.85;
+}
+
+.drawer-codex-active-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+/* Codex badges in drawer */
+.badge--codex-active {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+.badge--codex-inactive {
+  background: var(--border-subtle);
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+/* Use in Codex button — styled as secondary with amber accent when active */
+.codex-use-btn:disabled[aria-disabled="true"] {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+  opacity: 1;
+  cursor: default;
+}
+
+/* Codex feedback messages in drawer */
+.drawer-codex-feedback {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.drawer-codex-feedback--success {
+  background: var(--success-subtle);
+  color: #86efac;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.drawer-codex-feedback--error {
+  background: var(--error-subtle);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}

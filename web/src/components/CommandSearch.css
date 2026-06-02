@@ -1,0 +1,194 @@
+.command-search-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  box-shadow: var(--shadow-sm);
+  font-weight: 500;
+}
+
+.command-search-trigger:hover {
+  background: var(--surface-elevated);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.command-search-trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.command-search-trigger-icon {
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.command-search-trigger-text {
+  display: none;
+}
+
+.command-search-trigger-kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-family: inherit;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.command-search-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 15vh;
+  background-color: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+}
+
+.command-search-dialog {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 var(--spacing-md);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+}
+
+.command-search-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.command-search-input-icon {
+  font-size: 1.125rem;
+  line-height: 1;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.command-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 1rem;
+  outline: none;
+  font-family: inherit;
+  padding: 0;
+}
+
+.command-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.command-search-list {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: var(--spacing-xs);
+}
+
+.command-search-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.9375rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+  box-shadow: none;
+  font-weight: 500;
+}
+
+.command-search-item:hover,
+.command-search-item.selected {
+  background-color: var(--surface);
+}
+
+.command-search-item:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.25);
+}
+
+.command-search-item-label {
+  font-weight: 500;
+}
+
+.command-search-item-kbd {
+  padding: 2px 6px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-family: inherit;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.command-search-empty {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+}
+
+.command-search-footer {
+  display: flex;
+  justify-content: center;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: var(--surface);
+}
+
+.command-search-footer kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+@media (min-width: 640px) {
+  .command-search-trigger-text {
+    display: inline;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .command-search-trigger,
+  .command-search-item {
+    transition: none;
+  }
+}

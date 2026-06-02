@@ -1,7 +1,7 @@
 # opencode-multi-auth-codex
 
-Multi-account OAuth rotation plugin for OpenCode with a local dashboard, force mode, weighted settings, limits probing, and reliability hardening.
-<img width="1659" height="888" alt="image" src="https://github.com/user-attachments/assets/c72b4d04-be1b-4222-9094-454c2105336f" />
+Multi-account OAuth rotation plugin for OpenCode with a localhost dashboard, force mode, weighted rotation, sticky-session admin, account re-auth, and reliability hardening.
+<img width="1659" height="888" alt="image" src="img/img.png" />
 
 ## Documentation map
 
@@ -15,25 +15,28 @@ Multi-account OAuth rotation plugin for OpenCode with a local dashboard, force m
 
 - Rotates requests across multiple ChatGPT/Codex OAuth accounts.
 - Keeps a local account store with migration, validation, and atomic writes.
-- Provides a localhost dashboard to manage accounts and limits.
+- Provides a localhost React/Vite dashboard to manage accounts, limits, rotation presets, force mode, re-auth, and sticky sessions.
 - Supports force mode (pin one alias), account enable/disable, and re-auth.
-- Supports settings-driven rotation strategy (`round-robin`, `least-used`, `random`, `weighted-round-robin`).
+- Supports settings-driven rotation strategy (`round-robin`, `least-used`, `random`, `weighted-round-robin`) and account weights.
 - Probes limits safely and keeps authoritative data quality rules.
-- Gates non-core Antigravity features behind a feature flag.
+- Gates non-core Antigravity and sticky-session features behind feature flags.
 
 ## Current implementation status
 
 - Core phases A-G are implemented in this workspace.
-- Validation scripts are available for: unit, integration, web-headless, failure, stress, sandbox, soak.
+- The dashboard is a React/Vite app with dedicated Overview, Accounts, Configuration, Operations, and Sticky Session views.
+- Validation scripts are available for: unit, integration, web-headless, frontend, failure, stress, sandbox, soak.
 - Web hardening fixes are in place:
   - localhost-only bind enforcement
   - malformed JSON returns deterministic `400` without process crash
   - dashboard client script parse issue fixed
+- Runtime UI/API coverage includes account re-auth, enabled/disabled gating, rotation presets, and sticky-session admin endpoints.
 
 ## Behavior guarantees (latest)
 
 - Rate-limit handling sleeps an alias until reset when reset timing is known (`Retry-After`, rate-limit window reset, or parsed provider reset text), instead of retrying that alias immediately.
 - Force mode is strict: when enabled, requests stay pinned to the forced alias and do not silently fall back to other aliases.
+- Force mode is time-bound: it pins one alias for up to 24 hours and restores the previous strategy when cleared.
 - Rotation strategy control is shown next to Force Mode in the dashboard.
 - Strategy changes from dashboard settings are applied to runtime selection logic (not just persisted state/UI display).
 - Force Mode and strategy interaction is explicit:
@@ -41,6 +44,7 @@ Multi-account OAuth rotation plugin for OpenCode with a local dashboard, force m
   - saved strategy becomes active when Force Mode is turned OFF
 - Dashboard controls include mouseover help text for Force Mode and rotation strategy definitions.
 - Account enable/disable toggle is authoritative for eligibility in rotation.
+- Sticky-session routing is opt-in and persisted separately from the main rotation settings.
 
 ## Rotation strategy reference
 
@@ -53,6 +57,7 @@ Multi-account OAuth rotation plugin for OpenCode with a local dashboard, force m
 ## Repository structure
 
 - `src/` -> TypeScript source
+- `web/` -> React/Vite dashboard workspace
 - `dist/` -> compiled output (`tsc` generated)
 - `tests/unit/` -> unit tests
 - `tests/integration/` -> integration tests
@@ -62,6 +67,7 @@ Multi-account OAuth rotation plugin for OpenCode with a local dashboard, force m
 - `tests/sandbox/` -> sandbox isolation tests
 - `tests/soak/` -> soak scaffolding
 - `docs/` -> QA and phase documentation (see `docs/README.md` for canonical/historical split)
+- `openspec/` -> archived and current design/spec artifacts
 - `IMPLEMENTATION_PLAN.md` -> full plan and contracts
 - `TEST_EXECUTION_PLAN.md` -> required test order and gates
 - `codextesting.md` -> live testing TODO for Codex CLI sessions
@@ -70,9 +76,10 @@ Multi-account OAuth rotation plugin for OpenCode with a local dashboard, force m
 ## Requirements
 
 - Node.js 20+
-- npm
+- pnpm 11.x (use Corepack or install pnpm directly)
 - OpenCode CLI
 - ChatGPT/Codex OAuth accounts
+- Python 3.9+ and Playwright if you use `auto-login/`
 
 ## Install and use
 
@@ -138,8 +145,9 @@ Update existing installs:
 ```bash
 git clone https://github.com/guard22/opencode-multi-auth-codex.git
 cd opencode-multi-auth-codex
-npm ci
-npm run build
+corepack enable
+pnpm install --frozen-lockfile
+pnpm run build
 ```
 
 ### Quick start
@@ -299,6 +307,10 @@ Outlook login often shows interstitial pages after password entry:
 - `PUT /api/settings/feature-flags`
 - `POST /api/settings/reset`
 - `POST /api/settings/preset`
+- `GET /api/sticky-sessions/config` (feature-flag gated)
+- `PUT /api/sticky-sessions/config` (feature-flag gated)
+- `GET /api/sticky-sessions/status` (feature-flag gated)
+- `POST /api/sticky-sessions/cleanup` (feature-flag gated)
 - `POST /api/antigravity/refresh` (feature-flag gated)
 - `POST /api/antigravity/refresh-all` (feature-flag gated)
 
@@ -320,6 +332,7 @@ Outlook login often shows interstitial pages after password entry:
 - `OPENCODE_MULTI_AUTH_TOKEN_FAILURE_COOLDOWN_MS`
 - `OPENCODE_MULTI_AUTH_PROBE_EFFORT`
 - `OPENCODE_MULTI_AUTH_LIMITS_PROBE_MODELS`
+- `OPENCODE_MULTI_AUTH_USAGE_BASE_URL`
 
 ### Model mapping and runtime behavior
 
@@ -391,6 +404,7 @@ See [docs/gpt-5.4-fast-benchmark.md](./docs/gpt-5.4-fast-benchmark.md) for a con
 ### Feature flags
 
 - `OPENCODE_MULTI_AUTH_ANTIGRAVITY_ENABLED`
+- `OPENCODE_MULTI_AUTH_STICKY_SESSIONS_ENABLED`
 
 ### Notifications
 
@@ -412,18 +426,19 @@ See [docs/gpt-5.4-fast-benchmark.md](./docs/gpt-5.4-fast-benchmark.md) for a con
 ## Build and test
 
 ```bash
-npm ci
-npm run lint
-npm run build
-npx tsc --noEmit
+corepack enable
+pnpm install --frozen-lockfile
+pnpm run verify:static
+pnpm run build
 
-npm run test:unit
-npm run test:integration
-npm run test:web:headless
-npm run test:failure
-npm run test:stress
-npm run test:sandbox
-npm run test:soak:48h
+pnpm run test:unit
+pnpm run test:integration
+pnpm run test:web:headless
+pnpm run test:frontend
+pnpm run test:failure
+pnpm run test:stress
+pnpm run test:sandbox
+pnpm run test:soak:48h
 ```
 
 Current test script surfaces are scaffolded and active. For true long soak, set a long duration and keep the run alive.
@@ -442,27 +457,28 @@ Use `codextesting.md` for the Codex CLI live-testing checklist and copy-paste co
 
 ## Development notes
 
-- Edit `src/*`, never hand-edit `dist/*`.
-- Run `npm run build` after source changes.
+- Edit `src/*` and `web/src/*`, never hand-edit `dist/*`.
+- Use pnpm scripts for local verification (`pnpm run verify:static`, `pnpm run test:unit`, `pnpm run test:frontend`).
 - Keep manual/live tests sandboxed (temp HOME/store/auth paths).
 
 ## Release flow
 
-- This plugin is now intended to be installed from npm, so every shipped update should bump `package.json` version and publish a new package version. Reusing the same version on a new commit will leave users stuck on cached installs.
-- Prepare the next release by bumping the package version, rebuilding, and publishing:
+- Releases are published from `v*` tags through `.github/workflows/publish-npm.yml`.
+- The workflow uses pnpm for install/build/test, then publishes to npm with provenance.
+- Reusing the same version on a new commit will leave users stuck on cached installs, so bump `package.json` before tagging.
+- Prepare the next release by bumping the package version, rebuilding, and tagging:
 
 ```bash
-npm version 1.2.1 --no-git-tag-version
-npm install
-npm run build
-npm publish --access public
+pnpm version X.Y.Z --no-git-tag-version
+pnpm install --frozen-lockfile
+pnpm run build
 ```
 
 - After that, cut the git release from `main`:
 
 ```bash
-git commit -m "chore: release v1.2.1"
-git tag v1.2.1
+git commit -m "chore: release vX.Y.Z"
+git tag vX.Y.Z
 git push origin main --follow-tags
 ```
 
@@ -470,7 +486,7 @@ git push origin main --follow-tags
 
 ```json
 {
-  "plugin": ["npm:@guard22/opencode-multi-auth-codex@1.2.1"]
+  "plugin": ["npm:@guard22/opencode-multi-auth-codex@X.Y.Z"]
 }
 ```
 

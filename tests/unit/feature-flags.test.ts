@@ -57,9 +57,21 @@ describe('Phase G: Feature Flags', () => {
       expect(result.settings.featureFlags?.antigravityEnabled).toBe(false)
     })
 
+    it('should default stickySessionsEnabled to false', () => {
+      const result = getSettings()
+
+      expect((result.settings.featureFlags as any)?.stickySessionsEnabled).toBe(false)
+    })
+
     it('should return false for isFeatureEnabled when flag not set', () => {
       const result = isFeatureEnabled('antigravityEnabled')
       
+      expect(result).toBe(false)
+    })
+
+    it('should return false for isFeatureEnabled when stickySessionsEnabled is not set', () => {
+      const result = isFeatureEnabled('stickySessionsEnabled' as any)
+
       expect(result).toBe(false)
     })
   })
@@ -96,6 +108,15 @@ describe('Phase G: Feature Flags', () => {
       const result = getSettings()
       
       expect(result.settings.featureFlags?.antigravityEnabled).toBe(false)
+    })
+
+    it('should enable sticky sessions via environment variable', () => {
+      process.env.OPENCODE_MULTI_AUTH_STICKY_SESSIONS_ENABLED = 'true'
+
+      const result = getSettings()
+
+      expect((result.settings.featureFlags as any)?.stickySessionsEnabled).toBe(true)
+      expect(result.source).toBe('env')
     })
   })
 

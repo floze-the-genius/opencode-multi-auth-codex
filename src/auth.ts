@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import * as http from 'http'
 import * as url from 'url'
 import { addAccount, updateAccount, loadStore } from './store.js'
+import { setMetrics } from './metrics-store.js'
 import { clearAuthInvalid } from './rotation.js'
 import {
   decodeJwtPayload,
@@ -10,6 +11,7 @@ import {
   getExpiryFromClaims,
   getPlanTypeFromClaims
 } from './codex-auth.js'
+import { logError, logInfo } from './logger.js'
 import type { AccountCredentials } from './types.js'
 
 const OPENAI_ISSUER = 'https://auth.openai.com'
@@ -30,6 +32,8 @@ interface TokenResponse {
   expires_in: number
   token_type: string
 }
+
+const inFlightRefreshes = new Map<string, Promise<AccountCredentials | null>>()
 
 interface AuthorizationFlow {
   pkce: { verifier: string; challenge: string }
@@ -220,11 +224,13 @@ export async function loginAccount(
           planType,
           expiresAt,
           email,
-          lastRefresh: new Date(now).toISOString(),
-          lastSeenAt: now,
           source: 'opencode',
           authInvalid: false,
           authInvalidatedAt: undefined
+        })
+        setMetrics(alias, {
+          lastRefresh: new Date(now).toISOString(),
+          lastSeenAt: now
         })
 
         const account = store.accounts[alias]
@@ -270,12 +276,12 @@ export async function loginAccount(
   })
 }
 
-export async function refreshToken(alias: string): Promise<AccountCredentials | null> {
+async function performRefreshToken(alias: string): Promise<AccountCredentials | null> {
   const store = loadStore()
   const account = store.accounts[alias]
 
   if (!account?.refreshToken) {
-    console.error(`[multi-auth] No refresh token for ${alias}`)
+    logError(`[multi-auth] No refresh token for ${alias}`)
     return null
   }
 
@@ -291,7 +297,7 @@ export async function refreshToken(alias: string): Promise<AccountCredentials | 
     })
 
     if (!tokenRes.ok) {
-      console.error(`[multi-auth] Refresh failed for ${alias}: ${tokenRes.status}`)
+      logError(`[multi-auth] Refresh failed for ${alias}: ${tokenRes.status}`)
 
       if (tokenRes.status === 401 || tokenRes.status === 403) {
         try {
@@ -315,7 +321,6 @@ export async function refreshToken(alias: string): Promise<AccountCredentials | 
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token || account.refreshToken,
       expiresAt,
-      lastRefresh: new Date().toISOString(),
       idToken: tokens.id_token || account.idToken,
       accountId:
         getAccountIdFromClaims(idClaims) ||
@@ -328,12 +333,32 @@ export async function refreshToken(alias: string): Promise<AccountCredentials | 
     }
 
     const updatedStore = updateAccount(alias, updates)
+    setMetrics(alias, { lastRefresh: new Date().toISOString() })
     clearAuthInvalid(alias)
+    logInfo(`[multi-auth] Token refreshed for ${alias}`)
 
     return updatedStore.accounts[alias]
   } catch (err) {
-    console.error(`[multi-auth] Refresh error for ${alias}:`, err)
+    const message = err instanceof Error ? err.message : String(err)
+    logError(`[multi-auth] Refresh error for ${alias}: ${message}`)
     return null
+  }
+}
+
+export async function refreshToken(alias: string): Promise<AccountCredentials | null> {
+  const inFlight = inFlightRefreshes.get(alias)
+  if (inFlight) {
+    return inFlight
+  }
+
+  const refresh = performRefreshToken(alias)
+  inFlightRefreshes.set(alias, refresh)
+  try {
+    return await refresh
+  } finally {
+    if (inFlightRefreshes.get(alias) === refresh) {
+      inFlightRefreshes.delete(alias)
+    }
   }
 }
 

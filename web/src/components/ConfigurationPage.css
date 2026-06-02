@@ -1,0 +1,218 @@
+.configuration-page {
+  max-width: 960px;
+}
+
+.configuration-page-heading {
+  margin: 0 0 var(--spacing-lg);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.configuration-page-placeholder {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.configuration-section {
+  margin-bottom: var(--spacing-lg);
+  padding: var(--spacing-md);
+  background: var(--panel);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.configuration-section-heading {
+  margin: 0 0 var(--spacing-md);
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.configuration-field {
+  margin-bottom: var(--spacing-md);
+}
+
+.configuration-field-row {
+  display: flex;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.configuration-field-row .configuration-field {
+  flex: 1;
+  min-width: 200px;
+}
+
+.configuration-label {
+  display: block;
+  margin-bottom: var(--spacing-sm);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.configuration-label.configuration-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  cursor: pointer;
+}
+
+.configuration-label.configuration-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.configuration-select,
+.configuration-input {
+  width: 100%;
+  max-width: 300px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.configuration-select:focus,
+.configuration-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.configuration-help {
+  margin-top: var(--spacing-sm);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.configuration-unit {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.configuration-section--danger {
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.configuration-section--danger .configuration-section-heading {
+  color: #fca5a5;
+}
+
+.configuration-actions {
+  display: flex;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.configuration-button {
+  padding: 8px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.configuration-button:hover:not(:disabled) {
+  background: var(--panel-hover);
+}
+
+.configuration-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.configuration-button.danger {
+  background: var(--error-strong);
+  border-color: var(--error-strong);
+  color: var(--on-error);
+  box-shadow: 0 1px 2px rgba(220, 38, 38, 0.3);
+}
+
+.configuration-button.danger:hover:not(:disabled) {
+  background: var(--error-strong-hover);
+  border-color: var(--error-strong-hover);
+  color: var(--on-error);
+}
+
+.configuration-button.danger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.4);
+}
+
+.configuration-button.danger:disabled {
+  background: var(--error-strong);
+  border-color: var(--error-strong);
+  color: var(--on-error);
+  opacity: 0.5;
+}
+
+.configuration-success {
+  margin-top: var(--spacing-sm);
+  font-size: 0.875rem;
+  color: var(--success);
+}
+
+.configuration-error {
+  margin-top: var(--spacing-sm);
+  font-size: 0.875rem;
+  color: var(--error);
+}
+
+.configuration-force-status {
+  margin-top: var(--spacing-md);
+  padding: var(--spacing-sm);
+  background: var(--bg);
+  border-radius: 4px;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.configuration-force-status p {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .configuration-page {
+    padding: 0 var(--spacing-sm);
+  }
+
+  .configuration-page-heading {
+    font-size: 1.25rem;
+  }
+
+  .configuration-section {
+    padding: var(--spacing-sm);
+  }
+
+  .configuration-field-row {
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .configuration-field-row .configuration-field {
+    min-width: auto;
+  }
+
+  .configuration-select,
+  .configuration-input {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .configuration-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .configuration-button {
+    width: 100%;
+    text-align: center;
+  }
+}

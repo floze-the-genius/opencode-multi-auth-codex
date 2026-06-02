@@ -1,0 +1,589 @@
+.accounts-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.accounts-loading,
+.accounts-error,
+.accounts-empty {
+  padding: var(--spacing-2xl);
+  text-align: center;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  font-size: 0.9375rem;
+}
+
+.accounts-error {
+  color: var(--error);
+  background: var(--error-subtle);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.accounts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+}
+
+.accounts-header h2 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.accounts-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.accounts-toolbar {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  padding: var(--spacing-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.accounts-toolbar input,
+.accounts-toolbar select {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.875rem;
+  box-shadow: var(--shadow-inset);
+}
+
+.accounts-toolbar input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.accounts-toolbar input:focus-visible,
+.accounts-toolbar select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2), var(--shadow-inset);
+}
+
+.accounts-bulk-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+
+.accounts-bulk-toolbar span {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-right: var(--spacing-sm);
+  font-weight: 500;
+}
+
+.accounts-bulk-toolbar button.danger {
+  background: var(--error-subtle);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: var(--error);
+}
+
+/* Desktop Table */
+.accounts-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.accounts-table thead {
+  background: var(--bg-secondary);
+}
+
+.accounts-table th,
+.accounts-table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.accounts-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.accounts-table tbody tr {
+  transition: background-color 0.12s ease;
+}
+
+.accounts-table tbody tr:hover {
+  background-color: var(--bg-secondary);
+}
+
+.accounts-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.account-row--disabled {
+  opacity: 0.55;
+  filter: grayscale(0.35);
+}
+
+.table-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* Quota cells in table */
+.quota-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quota-cell-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quota-cell-label {
+  width: 20px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.quota-cell-bar-container {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  min-width: 40px;
+  border: 1px solid var(--border-subtle);
+}
+
+.quota-cell-bar {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  min-width: 2px;
+}
+
+.quota-cell-bar--ok {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+.quota-cell-bar--low {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.quota-cell-bar--critical {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+.quota-cell-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 52px;
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.quota-cell-value--ok {
+  color: #86efac;
+}
+
+.quota-cell-value--low {
+  color: #fcd34d;
+}
+
+.quota-cell-value--critical {
+  color: #fca5a5;
+}
+
+.quota-cell-unavailable {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  border: 1px solid transparent;
+}
+
+.badge--enabled {
+  background: var(--success-subtle);
+  color: #86efac;
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+.badge--disabled {
+  background: var(--error-subtle);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.badge--active {
+  background: var(--accent-subtle);
+  color: #93c5fd;
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+.badge--recommended {
+  background: var(--success-subtle);
+  color: #86efac;
+  border-color: rgba(34, 197, 94, 0.2);
+}
+
+/* Codex active badge — amber/gold, distinct from blue OpenCode rotation badge */
+.badge--codex-active {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.6875rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+.cell-notes {
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+}
+
+.confidence {
+  text-transform: capitalize;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  font-size: 0.6875rem;
+  display: inline-block;
+}
+
+.confidence--fresh {
+  background: var(--success-subtle);
+  color: #86efac;
+}
+
+.confidence--stale {
+  background: var(--warning-subtle);
+  color: #fcd34d;
+}
+
+.confidence--error {
+  background: var(--error-subtle);
+  color: #fca5a5;
+}
+
+.confidence--unknown {
+  background: var(--border-subtle);
+  color: var(--text-muted);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(59, 130, 246, 0.25);
+}
+
+button.primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* Mobile Account Cards */
+.mobile-account-cards {
+  display: none;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.mobile-account-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.mobile-account-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  transition: background 0.2s ease;
+}
+
+.mobile-account-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.mobile-account-card--active {
+  border-color: rgba(59, 130, 246, 0.35);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.15), var(--shadow-md);
+}
+
+.mobile-account-card--active::before {
+  background: linear-gradient(90deg, var(--accent), #60a5fa);
+}
+
+.mobile-account-card--disabled {
+  opacity: 0.55;
+  filter: grayscale(0.4);
+}
+
+.mobile-account-card--disabled:hover {
+  transform: none;
+  box-shadow: var(--shadow-sm);
+}
+
+.mobile-account-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.mobile-account-card-name {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.mobile-account-alias {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}
+
+.mobile-account-email {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-account-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.mobile-account-card-quotas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.mobile-account-card-quotas .quota-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.mobile-account-card-quotas .quota-label {
+  width: 24px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.mobile-account-card-quotas .quota-bar-container {
+  flex: 1;
+  height: 10px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  min-width: 60px;
+  border: 1px solid var(--border-subtle);
+}
+
+.mobile-account-card-quotas .quota-bar {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease;
+  min-width: 2px;
+  position: relative;
+}
+
+.mobile-account-card-quotas .quota-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(255,255,255,0.12), transparent 60%);
+}
+
+.mobile-account-card-quotas .quota-bar--ok {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.2);
+}
+
+.mobile-account-card-quotas .quota-bar--low {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.2);
+}
+
+.mobile-account-card-quotas .quota-bar--critical {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.2);
+}
+
+.mobile-account-card-quotas .quota-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 58px;
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.mobile-account-card-quotas .quota-value--ok {
+  color: #86efac;
+}
+
+.mobile-account-card-quotas .quota-value--low {
+  color: #fcd34d;
+}
+
+.mobile-account-card-quotas .quota-value--critical {
+  color: #fca5a5;
+}
+
+.mobile-account-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.mobile-account-card-resets {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mobile-account-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.1rem;
+}
+
+.mobile-account-card-actions button.small {
+  padding: 0.4rem 0.85rem;
+  font-size: 0.8125rem;
+  border-radius: var(--radius);
+  font-weight: 500;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .accounts-table {
+    display: none;
+  }
+
+  .mobile-account-cards {
+    display: flex;
+  }
+}
+
+@media (max-width: 640px) {
+  .accounts-toolbar {
+    flex-direction: column;
+  }
+
+  .accounts-toolbar input {
+    min-width: auto;
+    width: 100%;
+  }
+
+  .accounts-bulk-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .accounts-bulk-toolbar button {
+    width: 100%;
+  }
+}

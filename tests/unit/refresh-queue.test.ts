@@ -1,26 +1,37 @@
+// @ts-ignore - ESM Jest globals are available at runtime in the test environment.
 import { jest } from '@jest/globals'
 import type { AccountCredentials } from '../../src/types.js'
 
-const refreshRateLimitsForAccount = jest.fn<(account: AccountCredentials) => Promise<any>>()
+const esmJest = jest as typeof jest & {
+  unstable_mockModule: (moduleName: string, factory: () => Record<string, unknown>) => void
+}
+
+const refreshRateLimitsForAccount = jest.fn()
 const updateAccount = jest.fn()
+const setMetrics = jest.fn()
 const logInfo = jest.fn()
 const logWarn = jest.fn()
 
-jest.unstable_mockModule('../../src/limits-refresh.js', () => ({
+esmJest.unstable_mockModule('../../src/limits-refresh.js', () => ({
   refreshRateLimitsForAccount
 }))
 
-jest.unstable_mockModule('../../src/store.js', () => ({
+esmJest.unstable_mockModule('../../src/store.js', () => ({
   updateAccount
 }))
 
-jest.unstable_mockModule('../../src/logger.js', () => ({
+esmJest.unstable_mockModule('../../src/metrics-store.js', () => ({
+  setMetrics
+}))
+
+esmJest.unstable_mockModule('../../src/logger.js', () => ({
   logInfo,
   logWarn
 }))
 
 let startRefreshQueue: typeof import('../../src/refresh-queue.js').startRefreshQueue
 let getRefreshQueueState: typeof import('../../src/refresh-queue.js').getRefreshQueueState
+let stopRefreshQueue: typeof import('../../src/refresh-queue.js').stopRefreshQueue
 
 const accounts: AccountCredentials[] = Array.from({ length: 5 }, (_, index) => ({
   alias: `acc-${index + 1}`,
@@ -41,7 +52,7 @@ async function waitForQueueToFinish(): Promise<void> {
 }
 
 beforeAll(async () => {
-  ;({ startRefreshQueue, getRefreshQueueState } = await import('../../src/refresh-queue.js'))
+  ;({ startRefreshQueue, getRefreshQueueState, stopRefreshQueue } = await import('../../src/refresh-queue.js'))
 })
 
 beforeEach(() => {
@@ -84,6 +95,14 @@ describe('refresh queue concurrency', () => {
       })
     )
     expect(refreshRateLimitsForAccount).toHaveBeenCalledTimes(5)
+    expect(updateAccount).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ limitStatus: expect.anything() })
+    )
+    expect(setMetrics).toHaveBeenCalledWith(
+      'acc-1',
+      expect.objectContaining({ limitStatus: 'queued', limitError: undefined })
+    )
   })
 
   it('caps requested concurrency at 20 workers', async () => {
@@ -101,5 +120,31 @@ describe('refresh queue concurrency', () => {
     await waitForQueueToFinish()
 
     expect(queue.concurrency).toBe(20)
+  })
+
+  it('routes stopped queue telemetry to metrics instead of accounts.json state', async () => {
+    process.env.OPENCODE_MULTI_AUTH_REFRESH_QUEUE_CONCURRENCY = '1'
+    let releaseFirst!: () => void
+    refreshRateLimitsForAccount.mockImplementationOnce(async (account: AccountCredentials) => {
+      await new Promise<void>((resolve) => {
+        releaseFirst = resolve
+      })
+      return { alias: account.alias, updated: true }
+    })
+
+    startRefreshQueue(accounts.slice(0, 3))
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    stopRefreshQueue()
+    releaseFirst()
+    await waitForQueueToFinish()
+
+    expect(setMetrics).toHaveBeenCalledWith(
+      'acc-2',
+      expect.objectContaining({ limitStatus: 'stopped', limitError: 'Stopped by user' })
+    )
+    expect(updateAccount).not.toHaveBeenCalledWith(
+      'acc-2',
+      expect.objectContaining({ limitStatus: 'stopped' })
+    )
   })
 })

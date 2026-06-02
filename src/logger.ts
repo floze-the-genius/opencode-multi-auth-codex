@@ -45,12 +45,30 @@ export function getLogPath(): string {
   return LOG_FILE
 }
 
-export function readLogTail(maxLines = MAX_LOG_LINES): string[] {
+export interface LogLine {
+  time: string
+  level: string
+  message: string
+}
+
+const LOG_LINE_RE = /^(\S+)\s+\[(\w+)\]\s+(.*)$/
+
+function parseLogLine(raw: string): LogLine {
+  const match = raw.match(LOG_LINE_RE)
+  if (match) {
+    return { time: match[1], level: match[2].toLowerCase(), message: match[3] }
+  }
+  // Fallback: treat entire line as message with unknown level
+  return { time: '', level: 'unknown', message: raw }
+}
+
+export function readLogTail(maxLines = MAX_LOG_LINES): LogLine[] {
   try {
     if (!fs.existsSync(LOG_FILE)) return []
     const data = fs.readFileSync(LOG_FILE, 'utf-8')
-    const lines = data.split('\n').filter(Boolean)
-    return lines.slice(Math.max(0, lines.length - maxLines))
+    const rawLines = data.split('\n').filter(Boolean)
+    const tail = rawLines.slice(Math.max(0, rawLines.length - maxLines))
+    return tail.map(parseLogLine)
   } catch {
     return []
   }

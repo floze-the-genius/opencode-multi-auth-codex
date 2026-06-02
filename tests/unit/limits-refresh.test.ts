@@ -1,36 +1,48 @@
+// @ts-ignore - ESM Jest globals are available at runtime in the test environment.
 import { jest } from '@jest/globals'
 import type { AccountCredentials } from '../../src/types.js'
 
+const esmJest = jest as typeof jest & {
+  unstable_mockModule: (moduleName: string, factory: () => Record<string, unknown>) => void
+}
+
 const updateAccount = jest.fn()
 const loadStore = jest.fn()
-const probeRateLimitsForAccount = jest.fn<() => Promise<any>>()
-const fetchUsageRateLimitsForAccount = jest.fn<() => Promise<any>>()
+const probeRateLimitsForAccount = jest.fn()
+const fetchUsageRateLimitsForAccount = jest.fn()
 const logError = jest.fn()
 const logInfo = jest.fn()
 const markAuthInvalid = jest.fn()
 const markWorkspaceDeactivated = jest.fn()
+const setMetrics = jest.fn()
+const updateRateLimits = jest.fn()
 
-jest.unstable_mockModule('../../src/store.js', () => ({
+esmJest.unstable_mockModule('../../src/store.js', () => ({
   loadStore,
   updateAccount
 }))
 
-jest.unstable_mockModule('../../src/probe-limits.js', () => ({
+esmJest.unstable_mockModule('../../src/probe-limits.js', () => ({
   probeRateLimitsForAccount
 }))
 
-jest.unstable_mockModule('../../src/usage-limits.js', () => ({
+esmJest.unstable_mockModule('../../src/usage-limits.js', () => ({
   fetchUsageRateLimitsForAccount
 }))
 
-jest.unstable_mockModule('../../src/logger.js', () => ({
+esmJest.unstable_mockModule('../../src/logger.js', () => ({
   logError,
   logInfo
 }))
 
-jest.unstable_mockModule('../../src/rotation.js', () => ({
+esmJest.unstable_mockModule('../../src/rotation.js', () => ({
   markAuthInvalid,
   markWorkspaceDeactivated
+}))
+
+esmJest.unstable_mockModule('../../src/metrics-store.js', () => ({
+  setMetrics,
+  updateRateLimits
 }))
 
 let refreshRateLimitsForAccount: typeof import('../../src/limits-refresh.js').refreshRateLimitsForAccount
@@ -71,7 +83,7 @@ describe('refreshRateLimitsForAccount', () => {
     expect(probeRateLimitsForAccount).not.toHaveBeenCalled()
     expect(markAuthInvalid).toHaveBeenCalledWith('dead-token')
     expect(markWorkspaceDeactivated).not.toHaveBeenCalled()
-    expect(updateAccount).toHaveBeenLastCalledWith(
+    expect(setMetrics).toHaveBeenCalledWith(
       'dead-token',
       expect.objectContaining({
         limitStatus: 'error',
@@ -79,6 +91,10 @@ describe('refreshRateLimitsForAccount', () => {
         lastLimitErrorAt: expect.any(Number),
         limitsConfidence: expect.any(String)
       })
+    )
+    expect(updateAccount).not.toHaveBeenCalledWith(
+      'dead-token',
+      expect.objectContaining({ limitStatus: expect.anything() })
     )
     expect(result).toEqual({
       alias: 'dead-token',
@@ -129,15 +145,56 @@ describe('refreshRateLimitsForAccount', () => {
     })
 
     expect(probeRateLimitsForAccount).not.toHaveBeenCalled()
-    expect(updateAccount).toHaveBeenLastCalledWith(
+    expect(updateRateLimits).toHaveBeenCalledWith(
+      'dead-token',
+      expect.objectContaining({
+        fiveHour: expect.objectContaining({ remaining: 50 }),
+        weekly: expect.objectContaining({ remaining: 80 })
+      })
+    )
+    expect(setMetrics).toHaveBeenCalledWith(
       'dead-token',
       expect.objectContaining({
         limitStatus: 'success',
+        limitError: undefined,
+        lastLimitProbeAt: expect.any(Number),
+        limitsConfidence: expect.any(String)
+      })
+    )
+    expect(updateAccount).toHaveBeenLastCalledWith(
+      'dead-token',
+      expect.objectContaining({
         authInvalid: false,
         authInvalidatedAt: undefined,
         planType: 'pro'
       })
     )
+    expect(updateAccount.mock.calls.at(-1)?.[1]).not.toHaveProperty('rateLimits')
+    expect(updateAccount.mock.calls.at(-1)?.[1]).not.toHaveProperty('limitStatus')
     expect(result).toEqual({ alias: 'dead-token', updated: true })
+  })
+
+  it('clears stale rate-limited state after a healthy successful usage refresh', async () => {
+    fetchUsageRateLimitsForAccount.mockResolvedValue({
+      source: 'usage-api',
+      rateLimits: {
+        fiveHour: { remaining: 50, resetAt: Date.now() + 60_000 },
+        weekly: { remaining: 80, resetAt: Date.now() + 120_000 }
+      }
+    })
+
+    await refreshRateLimitsForAccount({
+      ...baseAccount,
+      rateLimitedUntil: Date.now() + 60_000
+    })
+
+    expect(updateAccount).toHaveBeenLastCalledWith(
+      'dead-token',
+      expect.objectContaining({
+        rateLimitedUntil: undefined
+      })
+    )
+    expect(updateAccount.mock.calls.at(-1)?.[1]).not.toHaveProperty('rateLimits')
+    expect(updateAccount.mock.calls.at(-1)?.[1]).not.toHaveProperty('limitStatus')
   })
 })

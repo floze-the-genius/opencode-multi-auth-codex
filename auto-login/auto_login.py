@@ -49,6 +49,21 @@ CREDENTIALS_FILE = SCRIPT_DIR / "credentials.json"
 # Timing
 BETWEEN_ACCOUNTS_DELAY = 5  # seconds between accounts
 
+ACCOUNT_METRIC_KEYS = {
+    "lastRefresh",
+    "lastSeenAt",
+    "lastActiveUntil",
+    "lastUsed",
+    "usageCount",
+    "rateLimits",
+    "rateLimitHistory",
+    "limitStatus",
+    "limitError",
+    "lastLimitProbeAt",
+    "lastLimitErrorAt",
+    "limitsConfidence",
+}
+
 
 def find_system_browser():
     override = os.environ.get("OPENCODE_MULTI_AUTH_BROWSER")
@@ -197,6 +212,10 @@ def fetch_userinfo_email(access_token):
         return None
 
 
+def strip_metric_fields(account):
+    return {key: value for key, value in account.items() if key not in ACCOUNT_METRIC_KEYS}
+
+
 # ── Account store (v2 format compatible with plugin) ───────────────────────
 def load_store():
     if not STORE_FILE.exists():
@@ -218,7 +237,7 @@ def save_store(store):
     tmp = STORE_FILE.with_suffix(f".tmp-{os.getpid()}-{int(time.time() * 1000)}")
     with open(tmp, "w") as f:
         json.dump(store, f, indent=2)
-    tmp.rename(STORE_FILE)
+    tmp.replace(STORE_FILE)
     os.chmod(STORE_FILE, 0o600)
 
 
@@ -250,12 +269,9 @@ def add_account_to_store(tokens):
         "accountId": account_id,
         "expiresAt": expires_at,
         "email": email,
-        "lastRefresh": datetime.now(timezone.utc).isoformat(),
-        "lastSeenAt": now,
         "addedAt": now,
         "source": "opencode",
         "authInvalid": False,
-        "usageCount": 0,
         "enabled": True,
     }
 
@@ -264,11 +280,9 @@ def add_account_to_store(tokens):
         for i, acc in enumerate(store["accounts"]):
             if acc.get("email") == email:
                 store["accounts"][i] = {
-                    **acc,
+                    **strip_metric_fields(acc),
                     **new_account,
-                    "usageCount": acc.get("usageCount", 0),
                     "addedAt": acc.get("addedAt", now),
-                    "rateLimitHistory": acc.get("rateLimitHistory", []),
                 }
                 save_store(store)
                 return email, i, False
