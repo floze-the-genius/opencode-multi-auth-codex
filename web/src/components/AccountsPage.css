@@ -38,6 +38,13 @@
   letter-spacing: -0.01em;
 }
 
+.accounts-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
 .accounts-toolbar {
   display: flex;
   gap: var(--spacing-sm);
@@ -267,6 +274,13 @@
   background: var(--success-subtle);
   color: #86efac;
   border-color: rgba(34, 197, 94, 0.2);
+}
+
+/* Codex active badge — amber/gold, distinct from blue OpenCode rotation badge */
+.badge--codex-active {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.3);
 }
 
 .tag {

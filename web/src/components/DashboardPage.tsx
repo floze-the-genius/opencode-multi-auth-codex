@@ -10,9 +10,13 @@ import {
   useUpdateAccountMetaMutation,
   useReauthAccountMutation,
   useSwitchAccountMutation,
+  useImportCodexAuthMutation,
+  useUseInCodexMutation,
   useLogsQuery
 } from '../api/queries'
 import { useNotification } from '../hooks/useNotification'
+import { ApiError } from '../api/client'
+import type { CodexActiveState } from '../types/api'
 import { normalizeLogLine } from './OperationsPage'
 import { AccountDrawer } from './AccountDrawer'
 import { isAccountEnabled } from '../lib/account-status'
@@ -29,6 +33,62 @@ import { AccountHistoryChart } from './AccountHistoryChart'
 import { deriveOverviewInsights } from '../lib/overview-insights'
 import type { AccountView } from '../types/api'
 import './DashboardPage.css'
+
+function codexActiveLabel(codexActive: CodexActiveState | undefined): string {
+  if (!codexActive) return 'Unknown'
+  switch (codexActive.status) {
+    case 'matched':
+      return codexActive.email
+        ? `${codexActive.alias} (${codexActive.email})`
+        : (codexActive.alias ?? 'Unknown')
+    case 'unknown':
+      return 'Codex account not in store'
+    case 'missing':
+      return 'No Codex account set'
+    case 'error':
+      return 'Codex auth.json unreadable'
+    default:
+      return 'Unknown'
+  }
+}
+
+function codexActiveSeverity(codexActive: CodexActiveState | undefined): 'ok' | 'warn' | 'error' | 'muted' {
+  if (!codexActive) return 'muted'
+  switch (codexActive.status) {
+    case 'matched': return 'ok'
+    case 'unknown': return 'warn'
+    case 'missing': return 'muted'
+    case 'error': return 'error'
+    default: return 'muted'
+  }
+}
+
+function importCodexErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.code === 'CODEX_AUTH_INVALID') {
+      return 'Codex auth.json is malformed or missing required fields. Check ~/.codex/auth.json.'
+    }
+    return err.message || 'Import failed'
+  }
+  if (err instanceof Error) return err.message
+  return 'Import failed'
+}
+
+function useInCodexErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'ALIAS_NOT_FOUND':
+      case 'ACCOUNT_NOT_FOUND':
+        return 'Account not found in the store.'
+      case 'ACCOUNT_UNUSABLE':
+        return 'Account cannot be used in Codex (missing tokens or invalid).'
+      default:
+        return err.message || 'Failed to set Codex account.'
+    }
+  }
+  if (err instanceof Error) return err.message
+  return 'Failed to set Codex account.'
+}
 
 function formatDate(value: number | string | undefined): string {
   if (!value) return 'never'
@@ -110,6 +170,8 @@ export function DashboardPage(): JSX.Element {
   const updateMetaMutation = useUpdateAccountMetaMutation()
   const reauthMutation = useReauthAccountMutation()
   const switchMutation = useSwitchAccountMutation()
+  const importCodexMutation = useImportCodexAuthMutation()
+  const useInCodexMutation = useUseInCodexMutation()
 
   const { addNotification } = useNotification()
 
@@ -145,6 +207,23 @@ export function DashboardPage(): JSX.Element {
   const handleStopQueue = useCallback(() => {
     stopQueueMutation.mutate()
   }, [stopQueueMutation])
+
+  const handleImportCodex = useCallback(() => {
+    importCodexMutation.mutate(undefined, {
+      onSuccess: (data) => {
+        if (data.added) {
+          addNotification({ message: `Imported Codex account: ${data.alias ?? 'unknown'}`, type: 'success' })
+        } else if (data.updated) {
+          addNotification({ message: `Updated Codex account: ${data.alias ?? 'unknown'}`, type: 'success' })
+        } else {
+          addNotification({ message: 'Codex auth.json imported (no changes)', type: 'info' })
+        }
+      },
+      onError: (err) => {
+        addNotification({ message: importCodexErrorMessage(err), type: 'error' })
+      }
+    })
+  }, [importCodexMutation, addNotification])
 
   if (isLoading) {
     return (
@@ -201,6 +280,12 @@ export function DashboardPage(): JSX.Element {
               {state.lastSyncAt ? new Date(state.lastSyncAt).toLocaleString() : 'never'}
             </strong>
           </div>
+          <div className="meta-card meta-card--codex" aria-label="Codex active account">
+            <span className="meta-label">Codex active</span>
+            <strong className={`meta-value codex-active-value codex-active-value--${codexActiveSeverity(state.codexActive)}`}>
+              {codexActiveLabel(state.codexActive)}
+            </strong>
+          </div>
         </div>
       </section>
 
@@ -239,7 +324,16 @@ export function DashboardPage(): JSX.Element {
       {/* Quick Actions */}
       <section className="dashboard-actions" aria-label="Dashboard quick actions">
         <div className="actions-row">
-          <button type="button" onClick={handleSync} disabled={syncMutation.isPending}>
+          <button
+            type="button"
+            onClick={handleImportCodex}
+            disabled={importCodexMutation.isPending}
+            aria-busy={importCodexMutation.isPending}
+            title="Read ~/.codex/auth.json and import the account into the store"
+          >
+            {importCodexMutation.isPending ? 'Importing...' : 'Import from Codex auth.json'}
+          </button>
+          <button type="button" className="secondary" onClick={handleSync} disabled={syncMutation.isPending}>
             {syncMutation.isPending ? 'Syncing...' : 'Sync auth.json'}
           </button>
           <button
@@ -262,6 +356,20 @@ export function DashboardPage(): JSX.Element {
             Refresh UI
           </button>
         </div>
+        {importCodexMutation.isSuccess && (
+          <div className="codex-import-feedback codex-import-feedback--success" role="status" aria-live="polite">
+            ✓ {importCodexMutation.data?.added
+              ? `Account "${importCodexMutation.data.alias}" added from Codex`
+              : importCodexMutation.data?.updated
+              ? `Account "${importCodexMutation.data.alias}" updated from Codex`
+              : 'Codex auth.json imported (no changes)'}
+          </div>
+        )}
+        {importCodexMutation.isError && (
+          <div className="codex-import-feedback codex-import-feedback--error" role="alert">
+            {importCodexErrorMessage(importCodexMutation.error)}
+          </div>
+        )}
       </section>
 
       {/* Queue Status */}
@@ -437,6 +545,7 @@ export function DashboardPage(): JSX.Element {
           {state.accounts.map((account) => {
             const isActive = state.rotationAlias === account.alias
             const isRecommended = state.recommendedAlias === account.alias
+            const isCodexActive = state.codexActive?.status === 'matched' && state.codexActive.alias === account.alias
             const accountEnabled = isAccountEnabled(account)
             const fiveHourPct = quotaPercent(
               account.rateLimits?.fiveHour?.remaining,
@@ -471,6 +580,15 @@ export function DashboardPage(): JSX.Element {
                         {isActive && <span className="badge badge--active">active</span>}
                         {isRecommended && <span className="badge badge--recommended">recommended</span>}
                       </>
+                    )}
+                    {isCodexActive && (
+                      <span
+                        className="badge badge--codex-active"
+                        title="This account is currently written to ~/.codex/auth.json"
+                        aria-label="Active in Codex"
+                      >
+                        Codex ✓
+                      </span>
                     )}
                   </div>
                 </div>
@@ -666,6 +784,7 @@ export function DashboardPage(): JSX.Element {
         <AccountDrawer
           account={drawerAccount}
           isActive={state.rotationAlias === drawerAccount.alias}
+          codexActive={state.codexActive}
           onClose={handleCloseDrawer}
           onToggleEnable={() => {
             const currentlyEnabled = isAccountEnabled(drawerAccount)
@@ -768,6 +887,19 @@ export function DashboardPage(): JSX.Element {
               }
             })
           }}
+          onUseInCodex={() => {
+            useInCodexMutation.mutate(drawerAccount.alias, {
+              onSuccess: () => {
+                addNotification({ message: `Codex set to ${drawerAccount.alias}`, type: 'success' })
+              },
+              onError: (err: Error) => {
+                addNotification({ message: useInCodexErrorMessage(err), type: 'error' })
+              }
+            })
+          }}
+          useInCodexPending={useInCodexMutation.isPending}
+          useInCodexError={useInCodexMutation.isError ? useInCodexErrorMessage(useInCodexMutation.error) : null}
+          useInCodexSuccess={useInCodexMutation.isSuccess}
           isBusy={
             enableMutation.isPending ||
             removeMutation.isPending ||

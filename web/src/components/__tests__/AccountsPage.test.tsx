@@ -522,4 +522,146 @@ describe('AccountsPage', () => {
     })
     expect(screen.queryByText('Limits refreshed for alpha')).not.toBeInTheDocument()
   })
+
+  test('header import from Codex triggers mutation and success feedback', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/codex/import')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({
+            ok: true,
+            imported: true,
+            alias: 'gamma',
+            added: true,
+            updated: true,
+            codexActive: { status: 'matched', alias: 'gamma', hasAccessToken: true, hasRefreshToken: true, hasIdToken: true }
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        )
+      }
+      return Promise.resolve(new Response(JSON.stringify(mockState), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    })
+
+    render(
+      <>
+        <AccountsPage />
+        <NotificationProbe />
+      </>,
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(screen.getAllByText('alpha')[0]).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /import from codex auth\.json/i }))
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith('/api/codex/import', expect.objectContaining({ method: 'POST' }))
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('notification-probe').textContent).toContain('Imported Codex account: gamma')
+    })
+  })
+
+  test('header import from Codex surfaces malformed auth error feedback', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation((input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/codex/import')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: false, error: 'Failed to parse codex auth.json', code: 'CODEX_AUTH_INVALID' }), {
+            status: 422,
+            headers: { 'Content-Type': 'application/json' }
+          })
+        )
+      }
+      return Promise.resolve(new Response(JSON.stringify(mockState), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    })
+
+    render(
+      <>
+        <AccountsPage />
+        <NotificationProbe />
+      </>,
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(screen.getAllByText('alpha')[0]).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /import from codex auth\.json/i }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('notification-probe').textContent).toContain('Codex auth.json is malformed')
+    })
+  })
+
+  test('drawer use-in-Codex triggers mutation and success feedback', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/codex/use')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({
+            ok: true,
+            alias: 'alpha',
+            codexActive: { status: 'matched', alias: 'alpha', hasAccessToken: true, hasRefreshToken: true, hasIdToken: true }
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        )
+      }
+      return Promise.resolve(new Response(JSON.stringify(mockState), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    })
+
+    render(
+      <>
+        <AccountsPage />
+        <NotificationProbe />
+      </>,
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(screen.getAllByText('alpha')[0]).toBeInTheDocument())
+    const alphaRow = screen.getAllByText('alpha')[0].closest('tr')
+    if (!alphaRow) throw new Error('Row not found')
+    fireEvent.click(alphaRow)
+    await waitFor(() => expect(screen.getByRole('dialog', { name: /account details/i })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /use in codex/i }))
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/codex/use',
+        expect.objectContaining({ method: 'POST', body: JSON.stringify({ alias: 'alpha' }) })
+      )
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('notification-probe').textContent).toContain('Codex set to alpha')
+    })
+  })
+
+  test('drawer use-in-Codex surfaces API error feedback', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation((input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/codex/use')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: 'Unknown alias', code: 'ACCOUNT_NOT_FOUND' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' }
+          })
+        )
+      }
+      return Promise.resolve(new Response(JSON.stringify(mockState), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    })
+
+    render(
+      <>
+        <AccountsPage />
+        <NotificationProbe />
+      </>,
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(screen.getAllByText('alpha')[0]).toBeInTheDocument())
+    const alphaRow = screen.getAllByText('alpha')[0].closest('tr')
+    if (!alphaRow) throw new Error('Row not found')
+    fireEvent.click(alphaRow)
+    await waitFor(() => expect(screen.getByRole('dialog', { name: /account details/i })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /use in codex/i }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('notification-probe').textContent).toContain('Account not found in the store')
+    })
+  })
 })

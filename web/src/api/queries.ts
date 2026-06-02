@@ -3,6 +3,7 @@ import {
   getState,
   getLogs,
   syncAuth,
+  importCodexAuth,
   refreshToken,
   refreshLimits,
   stopRefreshQueue,
@@ -10,6 +11,7 @@ import {
   startAutoLogin,
   addAutoLoginAccount,
   switchAccount,
+  useInCodex,
   enableAccount,
   removeAccount,
   updateAccountMeta,
@@ -72,6 +74,18 @@ export function useRefreshTokensMutation() {
 
   return useMutation({
     mutationFn: (alias?: string) => refreshToken(alias),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboardState })
+    }
+  })
+}
+
+// Import from Codex auth.json mutation
+export function useImportCodexAuthMutation() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: importCodexAuth,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboardState })
     }
@@ -150,6 +164,18 @@ export function useSwitchAccountMutation() {
   })
 }
 
+// Use stored account in Codex mutation
+export function useUseInCodexMutation() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: useInCodex,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboardState })
+    }
+  })
+}
+
 // Enable/disable account mutation
 export function useEnableAccountMutation() {
   const queryClient = useQueryClient()
@@ -168,8 +194,35 @@ export function useRemoveAccountMutation() {
 
   return useMutation({
     mutationFn: removeAccount,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboardState })
+    onMutate: async (alias: string) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.dashboardState })
+
+      const previousState = queryClient.getQueryData<DashboardState>(queryKeys.dashboardState)
+
+      queryClient.setQueryData<DashboardState>(queryKeys.dashboardState, (currentState) => {
+        if (!currentState) return currentState
+
+        const codexActive = currentState.codexActive?.alias === alias
+          ? { ...currentState.codexActive, status: 'unknown' as const, alias: null }
+          : currentState.codexActive
+
+        return {
+          ...currentState,
+          deviceAlias: currentState.deviceAlias === alias ? null : currentState.deviceAlias,
+          codexActive,
+          accounts: currentState.accounts.filter((account) => account.alias !== alias)
+        }
+      })
+
+      return { previousState }
+    },
+    onError: (_error, _alias, context) => {
+      if (context?.previousState) {
+        queryClient.setQueryData(queryKeys.dashboardState, context.previousState)
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboardState, refetchType: 'all' })
     }
   })
 }

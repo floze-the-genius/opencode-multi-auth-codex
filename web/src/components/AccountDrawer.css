@@ -150,3 +150,88 @@ textarea {
   resize: vertical;
   min-height: 80px;
 }
+
+/* Codex active banner at top of drawer body */
+.drawer-codex-active-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  color: #fbbf24;
+  line-height: 1.4;
+}
+
+.drawer-codex-active-banner code {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  opacity: 0.85;
+}
+
+.drawer-codex-active-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+/* Codex badges in drawer */
+.badge--codex-active {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+.badge--codex-inactive {
+  background: var(--border-subtle);
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+/* Use in Codex button — styled as secondary with amber accent when active */
+.codex-use-btn:disabled[aria-disabled="true"] {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+  opacity: 1;
+  cursor: default;
+}
+
+/* Codex feedback messages in drawer */
+.drawer-codex-feedback {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.drawer-codex-feedback--success {
+  background: var(--success-subtle);
+  color: #86efac;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.drawer-codex-feedback--error {
+  background: var(--error-subtle);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}

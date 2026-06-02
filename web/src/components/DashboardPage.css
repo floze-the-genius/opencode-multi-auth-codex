@@ -1078,6 +1078,55 @@
   background: var(--info-subtle);
 }
 
+/* Codex Active badge — distinct amber/gold from the blue OpenCode rotation badge */
+.badge--codex-active {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+/* Codex active value in health summary */
+.codex-active-value {
+  font-size: 0.8rem;
+}
+
+.codex-active-value--ok {
+  color: #fbbf24;
+}
+
+.codex-active-value--warn {
+  color: #fcd34d;
+}
+
+.codex-active-value--error {
+  color: #fca5a5;
+}
+
+.codex-active-value--muted {
+  color: var(--text-muted);
+}
+
+/* Codex import feedback inline messages */
+.codex-import-feedback {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.codex-import-feedback--success {
+  background: var(--success-subtle);
+  color: #86efac;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.codex-import-feedback--error {
+  background: var(--error-subtle);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
 /* Responsive */
 @media (max-width: 1180px) {
   .dashboard-page {

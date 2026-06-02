@@ -68,6 +68,24 @@ export interface AuthSummary {
   hasRefreshToken: boolean
 }
 
+export type CodexActiveStatus = 'matched' | 'unknown' | 'missing' | 'error'
+
+export interface CodexActiveState {
+  status: CodexActiveStatus
+  alias: string | null
+  email?: string
+  accountId?: string
+  accountUserId?: string
+  userId?: string
+  planType?: string
+  expiresAt?: number
+  lastRefresh?: string
+  hasAccessToken: boolean
+  hasRefreshToken: boolean
+  hasIdToken: boolean
+  error?: string
+}
+
 export interface StoreStatus {
   locked: boolean
   encrypted: boolean
@@ -167,6 +185,7 @@ export interface LogsResponse {
 export interface DashboardState {
   authPath: string
   deviceAlias: string | null
+  codexActive?: CodexActiveState
   rotationAlias: string | null
   accounts: AccountView[]
   lastSyncAt: number
@@ -195,6 +214,7 @@ export interface ApiOkResponse {
 }
 
 export interface ApiErrorResponse {
+  ok?: false
   error: string
   code?: string
   details?: Array<{ field: string; message: string; constraint: string }>
@@ -207,6 +227,27 @@ export interface EnableAccountResponse extends ApiOkResponse {
   enabled: boolean
   disabledAt?: number
   disabledBy?: string
+}
+
+export interface ImportCodexAuthResponse extends ApiOkResponse {
+  imported: boolean
+  alias: string | null
+  added: boolean
+  updated: boolean
+  authEmail?: string
+  authAccountId?: string
+  warning?: string
+  codexActive: CodexActiveState
+}
+
+export interface CodexAuthInvalidResponse extends ApiErrorResponse {
+  ok: false
+  code: 'CODEX_AUTH_INVALID'
+}
+
+export interface UseInCodexResponse extends ApiOkResponse {
+  alias: string
+  codexActive: CodexActiveState
 }
 
 export interface ReauthResponse extends ApiOkResponse {

@@ -7,16 +7,46 @@ import {
   useReauthAccountMutation,
   useRefreshTokensMutation,
   useRefreshLimitsMutation,
-  useSwitchAccountMutation
+  useSwitchAccountMutation,
+  useImportCodexAuthMutation,
+  useUseInCodexMutation
 } from '../api/queries'
 import { useNotification } from '../hooks/useNotification'
+import { ApiError } from '../api/client'
 import { AccountDrawer } from './AccountDrawer'
 import { CreateAccountModal } from './CreateAccountModal'
 import { isAccountEnabled } from '../lib/account-status'
 import { formatResetTimeCompact } from '../lib/reset-time'
 import { quotaPercent, quotaSeverity, formatQuotaLabel } from '../lib/quota-helpers'
-import type { AccountView } from '../types/api'
+import type { AccountView, CodexActiveState } from '../types/api'
 import './AccountsPage.css'
+
+function importCodexErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.code === 'CODEX_AUTH_INVALID') {
+      return 'Codex auth.json is malformed or missing required fields. Check ~/.codex/auth.json.'
+    }
+    return err.message || 'Import failed'
+  }
+  if (err instanceof Error) return err.message
+  return 'Import failed'
+}
+
+function useInCodexErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'ALIAS_NOT_FOUND':
+      case 'ACCOUNT_NOT_FOUND':
+        return 'Account not found in the store.'
+      case 'ACCOUNT_UNUSABLE':
+        return 'Account cannot be used in Codex (missing tokens or invalid).'
+      default:
+        return err.message || 'Failed to set Codex account.'
+    }
+  }
+  if (err instanceof Error) return err.message
+  return 'Failed to set Codex account.'
+}
 
 type SortOption = 'alias-asc' | 'alias-desc' | 'usage-desc' | 'usage-asc'
 type StatusFilter = 'all' | 'enabled' | 'disabled'
@@ -24,18 +54,30 @@ type StatusFilter = 'all' | 'enabled' | 'disabled'
 function AccountStatusBadges({
   account,
   rotationAlias,
-  recommendedAlias
+  recommendedAlias,
+  codexActive
 }: {
   account: AccountView
   rotationAlias: string | null
   recommendedAlias: string | null
+  codexActive?: CodexActiveState
 }) {
   const isActive = rotationAlias === account.alias
   const isRecommended = recommendedAlias === account.alias
   const accountEnabled = isAccountEnabled(account)
+  const isCodexActive = codexActive?.status === 'matched' && codexActive.alias === account.alias
 
   if (!accountEnabled) {
-    return <span className="badge badge--disabled">disabled</span>
+    return (
+      <>
+        <span className="badge badge--disabled">disabled</span>
+        {isCodexActive && (
+          <span className="badge badge--codex-active" title="Active in Codex" aria-label="Active in Codex">
+            Codex ✓
+          </span>
+        )}
+      </>
+    )
   }
 
   return (
@@ -43,6 +85,11 @@ function AccountStatusBadges({
       {isActive && <span className="badge badge--active">active</span>}
       {isRecommended && <span className="badge badge--recommended">recommended</span>}
       {!isActive && !isRecommended && <span className="badge badge--enabled">enabled</span>}
+      {isCodexActive && (
+        <span className="badge badge--codex-active" title="Active in Codex" aria-label="Active in Codex">
+          Codex ✓
+        </span>
+      )}
     </>
   )
 }
@@ -90,11 +137,13 @@ function MobileAccountCard({
   account,
   rotationAlias,
   recommendedAlias,
+  codexActive,
   onOpenDrawer
 }: {
   account: AccountView
   rotationAlias: string | null
   recommendedAlias: string | null
+  codexActive?: CodexActiveState
   onOpenDrawer: (account: AccountView) => void
 }) {
   const accountEnabled = isAccountEnabled(account)
@@ -124,7 +173,7 @@ function MobileAccountCard({
           {account.email && <span className="mobile-account-email">{account.email}</span>}
         </div>
         <div className="mobile-account-card-badges">
-          <AccountStatusBadges account={account} rotationAlias={rotationAlias} recommendedAlias={recommendedAlias} />
+          <AccountStatusBadges account={account} rotationAlias={rotationAlias} recommendedAlias={recommendedAlias} codexActive={codexActive} />
         </div>
       </div>
 
@@ -222,6 +271,25 @@ export function AccountsPage(): JSX.Element {
   const refreshTokensMutation = useRefreshTokensMutation()
   const refreshLimitsMutation = useRefreshLimitsMutation()
   const switchMutation = useSwitchAccountMutation()
+  const importCodexMutation = useImportCodexAuthMutation()
+  const useInCodexMutation = useUseInCodexMutation()
+
+  const handleImportCodex = useCallback(() => {
+    importCodexMutation.mutate(undefined, {
+      onSuccess: (data) => {
+        if (data.added) {
+          addNotification({ message: `Imported Codex account: ${data.alias ?? 'unknown'}`, type: 'success' })
+        } else if (data.updated) {
+          addNotification({ message: `Updated Codex account: ${data.alias ?? 'unknown'}`, type: 'success' })
+        } else {
+          addNotification({ message: 'Codex auth.json imported (no changes)', type: 'info' })
+        }
+      },
+      onError: (err) => {
+        addNotification({ message: importCodexErrorMessage(err), type: 'error' })
+      }
+    })
+  }, [importCodexMutation, addNotification])
 
   const filteredAccounts = useMemo(() => {
     if (!state) return []
@@ -491,9 +559,21 @@ export function AccountsPage(): JSX.Element {
     <div className="accounts-page" data-dashboard-surface="accounts">
       <header className="accounts-header">
         <h2>Accounts</h2>
-        <button type="button" className="primary" onClick={() => setCreateModalOpen(true)}>
-          Add account
-        </button>
+        <div className="accounts-header-actions">
+          <button
+            type="button"
+            className="secondary"
+            onClick={handleImportCodex}
+            disabled={importCodexMutation.isPending}
+            aria-busy={importCodexMutation.isPending}
+            title="Read ~/.codex/auth.json and import the account into the store"
+          >
+            {importCodexMutation.isPending ? 'Importing…' : 'Import from Codex auth.json'}
+          </button>
+          <button type="button" className="primary" onClick={() => setCreateModalOpen(true)}>
+            Add account
+          </button>
+        </div>
       </header>
 
       <div className="accounts-toolbar">
@@ -590,6 +670,7 @@ export function AccountsPage(): JSX.Element {
                         account={account}
                         rotationAlias={state.rotationAlias}
                         recommendedAlias={state.recommendedAlias}
+                        codexActive={state.codexActive}
                       />
                     </div>
                   </td>
@@ -646,6 +727,7 @@ export function AccountsPage(): JSX.Element {
                 account={account}
                 rotationAlias={state.rotationAlias}
                 recommendedAlias={state.recommendedAlias}
+                codexActive={state.codexActive}
                 onOpenDrawer={handleOpenDrawer}
               />
             ))}
@@ -657,6 +739,7 @@ export function AccountsPage(): JSX.Element {
         <AccountDrawer
           account={selectedAccount}
           isActive={state.rotationAlias === selectedAccount.alias}
+          codexActive={state.codexActive}
           onClose={handleCloseDrawer}
           onToggleEnable={() => handleToggleEnable(selectedAccount)}
           onRemove={() => handleRemove(selectedAccount.alias)}
@@ -665,6 +748,19 @@ export function AccountsPage(): JSX.Element {
           onRefreshTokens={() => handleRefreshTokens(selectedAccount.alias)}
           onRefreshLimits={() => handleRefreshLimits(selectedAccount.alias)}
           onSwitch={() => handleSwitch(selectedAccount.alias)}
+          onUseInCodex={() => {
+            useInCodexMutation.mutate(selectedAccount.alias, {
+              onSuccess: () => {
+                addNotification({ message: `Codex set to ${selectedAccount.alias}`, type: 'success' })
+              },
+              onError: (err: Error) => {
+                addNotification({ message: useInCodexErrorMessage(err), type: 'error' })
+              }
+            })
+          }}
+          useInCodexPending={useInCodexMutation.isPending}
+          useInCodexError={useInCodexMutation.isError ? useInCodexErrorMessage(useInCodexMutation.error) : null}
+          useInCodexSuccess={useInCodexMutation.isSuccess}
           isBusy={
             enableMutation.isPending ||
             removeMutation.isPending ||

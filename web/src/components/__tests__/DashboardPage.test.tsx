@@ -278,7 +278,7 @@ describe('DashboardPage', () => {
 
     // DashboardPage renders quick actions at its top level (single canonical source)
     await waitFor(() => {
-      const buttons = screen.getAllByRole('button', { name: /sync auth\.json/i })
+      const buttons = screen.getAllByRole('button', { name: /import from codex auth\.json/i })
       expect(buttons.length).toBe(1)
     })
 

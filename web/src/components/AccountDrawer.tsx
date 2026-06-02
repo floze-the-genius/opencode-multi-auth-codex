@@ -1,12 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { isAccountEnabled } from '../lib/account-status'
 import { formatResetTime } from '../lib/reset-time'
-import type { AccountView } from '../types/api'
+import type { AccountView, CodexActiveState } from '../types/api'
 import './AccountDrawer.css'
 
 export interface AccountDrawerProps {
   account: AccountView
   isActive: boolean
+  codexActive?: CodexActiveState
   onClose: () => void
   onToggleEnable: () => void
   onRemove: () => void
@@ -15,12 +16,17 @@ export interface AccountDrawerProps {
   onRefreshTokens: () => void
   onRefreshLimits: () => void
   onSwitch: () => void
+  onUseInCodex?: () => void
+  useInCodexPending?: boolean
+  useInCodexError?: string | null
+  useInCodexSuccess?: boolean
   isBusy: boolean
 }
 
 export function AccountDrawer({
   account,
   isActive,
+  codexActive,
   onClose,
   onToggleEnable,
   onRemove,
@@ -29,11 +35,17 @@ export function AccountDrawer({
   onRefreshTokens,
   onRefreshLimits,
   onSwitch,
+  onUseInCodex,
+  useInCodexPending = false,
+  useInCodexError = null,
+  useInCodexSuccess = false,
   isBusy
 }: AccountDrawerProps): JSX.Element {
   const [tags, setTags] = useState(account.tags?.join(', ') || '')
   const [notes, setNotes] = useState(account.notes || '')
   const closeButtonRef = useRef<HTMLButtonElement>(null)
+
+  const isCodexActive = codexActive?.status === 'matched' && codexActive.alias === account.alias
 
   const handleSaveMeta = useCallback(() => {
     onUpdateMeta(tags, notes)
@@ -83,6 +95,12 @@ export function AccountDrawer({
         </header>
 
         <div className="account-drawer-body">
+          {isCodexActive && (
+            <div className="drawer-codex-active-banner" role="status" aria-label="This account is active in Codex">
+              <span className="drawer-codex-active-icon" aria-hidden="true">✓</span>
+              <span>Active in Codex — this account is written to <code>~/.codex/auth.json</code></span>
+            </div>
+          )}
           <div className="drawer-section">
             <div className="drawer-field">
               <span className="drawer-label">Email</span>
@@ -95,6 +113,16 @@ export function AccountDrawer({
                   <span className="badge badge--enabled">enabled</span>
                 ) : (
                   <span className="badge badge--disabled">disabled</span>
+                )}
+              </span>
+            </div>
+            <div className="drawer-field">
+              <span className="drawer-label">Codex</span>
+              <span className="drawer-value">
+                {isCodexActive ? (
+                  <span className="badge badge--codex-active" aria-label="Active in Codex">Codex ✓</span>
+                ) : (
+                  <span className="badge badge--codex-inactive" aria-label="Not active in Codex">Not in Codex</span>
                 )}
               </span>
             </div>
@@ -139,6 +167,33 @@ export function AccountDrawer({
               <button type="button" onClick={onSwitch} disabled={isBusy} className="secondary">
                 Switch to this account
               </button>
+            )}
+            {onUseInCodex !== undefined && (
+              <button
+                type="button"
+                onClick={onUseInCodex}
+                disabled={isBusy || useInCodexPending || isCodexActive}
+                aria-busy={useInCodexPending}
+                aria-disabled={isCodexActive}
+                className="secondary codex-use-btn"
+                title={isCodexActive ? 'This account is already active in Codex' : 'Write this account to ~/.codex/auth.json'}
+              >
+                {useInCodexPending
+                  ? 'Setting Codex account…'
+                  : isCodexActive
+                  ? 'Active in Codex'
+                  : 'Use in Codex'}
+              </button>
+            )}
+            {useInCodexSuccess && !isCodexActive && (
+              <div className="drawer-codex-feedback drawer-codex-feedback--success" role="status" aria-live="polite">
+                ✓ Codex account updated
+              </div>
+            )}
+            {useInCodexError && (
+              <div className="drawer-codex-feedback drawer-codex-feedback--error" role="alert">
+                {useInCodexError}
+              </div>
             )}
             <button
               type="button"

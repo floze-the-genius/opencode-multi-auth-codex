@@ -115,6 +115,44 @@ describe('AccountDrawer', () => {
     expect(onSwitch).toHaveBeenCalledTimes(1)
   })
 
+  test('calls onUseInCodex when use-in-Codex button is clicked', () => {
+    const onUseInCodex = vi.fn()
+    renderDrawer({ onUseInCodex })
+
+    fireEvent.click(screen.getByRole('button', { name: /use in codex/i }))
+
+    expect(onUseInCodex).toHaveBeenCalledTimes(1)
+  })
+
+  test('shows use-in-Codex success and error feedback', () => {
+    const { rerender } = renderDrawer({
+      onUseInCodex: vi.fn(),
+      useInCodexSuccess: true
+    })
+
+    expect(screen.getByText(/codex account updated/i)).toBeInTheDocument()
+
+    rerender(
+      <AccountDrawer
+        account={mockAccount}
+        isActive={false}
+        onClose={vi.fn()}
+        onToggleEnable={vi.fn()}
+        onRemove={vi.fn()}
+        onUpdateMeta={vi.fn()}
+        onReauth={vi.fn()}
+        onRefreshTokens={vi.fn()}
+        onRefreshLimits={vi.fn()}
+        onSwitch={vi.fn()}
+        onUseInCodex={vi.fn()}
+        useInCodexError="Account cannot be used in Codex"
+        isBusy={false}
+      />
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Account cannot be used in Codex')
+  })
+
   test('hides switch button when account is already active', () => {
     renderDrawer({ isActive: true })
 

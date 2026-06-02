@@ -75,6 +75,10 @@ export function syncAuth() {
   return apiRequest<import('../types/api.ts').ApiOkResponse>('/api/sync', { method: 'POST' })
 }
 
+export function importCodexAuth() {
+  return apiRequest<import('../types/api.ts').ImportCodexAuthResponse>('/api/codex/import', { method: 'POST' })
+}
+
 export function startAuth(alias: string) {
   return apiRequest<{ ok: true; url: string }>('/api/auth/start', {
     method: 'POST',
@@ -103,6 +107,13 @@ export function addAutoLoginAccount(input: {
 
 export function switchAccount(alias: string) {
   return apiRequest<import('../types/api.ts').ApiOkResponse>('/api/switch', {
+    method: 'POST',
+    body: { alias }
+  })
+}
+
+export function useInCodex(alias: string) {
+  return apiRequest<import('../types/api.ts').UseInCodexResponse>('/api/codex/use', {
     method: 'POST',
     body: { alias }
   })
