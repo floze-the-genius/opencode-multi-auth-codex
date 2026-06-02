@@ -127,6 +127,28 @@ describe('account metrics sidecar store', () => {
     expect(JSON.parse(fs.readFileSync(path.join(testDir, 'account-metrics.json'), 'utf8')).metrics.alpha.usageCount).toBe(24)
   })
 
+  it('flushes pending debounced writes to the sidecar path captured before env restoration', async () => {
+    jest.useFakeTimers()
+    const metricsStore = await importMetricsStore()
+    const restoredDir = path.join(testDir, 'restored-store')
+    const restoredMetricsPath = path.join(restoredDir, 'account-metrics.json')
+
+    metricsStore.setMetrics('test-alias', { usageCount: 123, limitStatus: 'success' })
+    process.env = {
+      ...originalEnv,
+      OPENCODE_MULTI_AUTH_STORE_DIR: restoredDir,
+      OPENCODE_MULTI_AUTH_STORE_FILE: path.join(restoredDir, 'accounts.json')
+    }
+
+    metricsStore.flushSync(true)
+    await jest.advanceTimersByTimeAsync(metricsStore.METRICS_FLUSH_DEBOUNCE_MS)
+
+    expect(fs.existsSync(restoredMetricsPath)).toBe(false)
+    expect(JSON.parse(fs.readFileSync(path.join(testDir, 'account-metrics.json'), 'utf8')).metrics['test-alias']).toEqual(
+      expect.objectContaining({ usageCount: 123, limitStatus: 'success' })
+    )
+  })
+
   it('derives rate-limit history with existing dedup semantics and caps history at 160 entries', async () => {
     const metricsStore = await importMetricsStore()
 

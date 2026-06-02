@@ -1476,6 +1476,7 @@ export function startWebConsole(options?: { port?: number; host?: string }): htt
         disableReason: acc.disableReason,
         usageCount: acc.usageCount,
         rateLimits: acc.rateLimits,
+        rateLimitHistory: acc.rateLimitHistory,
         limitsConfidence: acc.limitsConfidence,
         limitStatus: acc.limitStatus,
         limitError: acc.limitError,

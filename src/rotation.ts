@@ -97,9 +97,9 @@ function withAllocatorMetrics(
 ): AccountCredentials {
   return {
     ...acc,
+    ...metrics,
     usageCount: typeof metrics.usageCount === 'number' ? metrics.usageCount : acc.usageCount ?? 0,
     lastUsed: typeof metrics.lastUsed === 'number' ? metrics.lastUsed : acc.lastUsed,
-    limitError: metrics.limitError,
     lastLimitErrorAt: typeof metrics.lastLimitErrorAt === 'number' ? metrics.lastLimitErrorAt : acc.lastLimitErrorAt
   }
 }

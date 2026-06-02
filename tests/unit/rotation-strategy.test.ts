@@ -288,6 +288,42 @@ describe('Rotation Strategy Runtime Behavior', () => {
       expect(typeof persistedMetrics.metrics.alpha.lastUsed).toBe('number')
       expect(persistedMetrics.metrics.alpha.limitError).toBeUndefined()
     })
+
+    it('returns selected accounts with sidecar rate limits and history for runtime consumers', async () => {
+      const history = [
+        {
+          at: 1_700_000_010_000,
+          fiveHour: { remaining: 80, limit: 100, resetAt: 1_700_000_100_000 },
+          weekly: { remaining: 700, limit: 1000, resetAt: 1_700_000_200_000 }
+        },
+        {
+          at: 1_700_000_020_000,
+          fiveHour: { remaining: 70, limit: 100, resetAt: 1_700_000_100_000 },
+          weekly: { remaining: 650, limit: 1000, resetAt: 1_700_000_200_000 }
+        }
+      ]
+      const rateLimits = {
+        fiveHour: { remaining: 70, limit: 100, resetAt: 1_700_000_100_000, updatedAt: 1_700_000_020_000 },
+        weekly: { remaining: 650, limit: 1000, resetAt: 1_700_000_200_000, updatedAt: 1_700_000_020_000 }
+      }
+      writeStateStore({
+        alpha: stateAccount('alpha'),
+        beta: stateAccount('beta')
+      })
+      writeMetrics({
+        alpha: { usageCount: 1, rateLimits, rateLimitHistory: history, limitsConfidence: 'fresh', limitStatus: 'success' },
+        beta: { usageCount: 9 }
+      })
+      expect(updateSettings({ rotationStrategy: 'least-used' }, 'test').success).toBe(true)
+
+      const rotation = await getNextAccount({ ...DEFAULT_CONFIG, rotationStrategy: 'least-used' })
+
+      expect(rotation?.account.alias).toBe('alpha')
+      expect(rotation?.account.rateLimits).toEqual(rateLimits)
+      expect(rotation?.account.rateLimitHistory).toEqual(history)
+      expect(rotation?.account.limitsConfidence).toBe('fresh')
+      expect(rotation?.account.limitStatus).toBe('success')
+    })
   })
 
   coldStartRedIt('RED: cold-start least-used selection reads usageCount and lastUsed from account-metrics.json cache', async () => {

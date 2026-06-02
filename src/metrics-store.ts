@@ -285,13 +285,17 @@ function markDirty(): void {
   scheduleFlush()
 }
 
-function ensureStoreDir(): void {
-  fs.mkdirSync(path.dirname(getMetricsPath()), { recursive: true, mode: 0o700 })
+function getWriteMetricsPath(): string {
+  return loadedPath ?? getMetricsPath()
+}
+
+function ensureStoreDir(file: string): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
 }
 
 function writeMetricsFile(): void {
-  ensureStoreDir()
-  const file = getMetricsPath()
+  const file = getWriteMetricsPath()
+  ensureStoreDir(file)
   const payload: MetricsSideCarFile = {
     version: METRICS_SIDE_CAR_VERSION,
     updatedAt: Date.now(),
@@ -447,7 +451,12 @@ export async function flush(): Promise<void> {
 }
 
 export function flushSync(force = false): void {
-  if (force) ensureLoaded()
+  if (!loaded) {
+    if (force) ensureLoaded()
+    else return
+  } else if (force && !dirty && loadedPath !== getMetricsPath()) {
+    ensureLoaded()
+  }
   if (!loaded || (!dirty && !force)) return
   clearDebounceTimer()
   clearPeriodicTimer()
