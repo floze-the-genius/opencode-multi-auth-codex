@@ -6,7 +6,7 @@ const REASONING_LEVELS = ['none', 'low', 'medium', 'high', 'xhigh'] as const
 type ReasoningLevel = typeof REASONING_LEVELS[number]
 
 const MODEL_LIMITS: Record<string, { context: number; input?: number; output: number }> = {
-  'gpt-5.5': { context: 530000, input: 400000, output: 130000 },
+  'gpt-5.5': { context: 1050000, input: 922000, output: 128000 },
   'gpt-5.4': { context: 1050000, input: 922000, output: 128000 },
   'gpt-5.3': { context: 272000, output: 128000 },
   'gpt-5.3-codex-spark': { context: 272000, output: 128000 },

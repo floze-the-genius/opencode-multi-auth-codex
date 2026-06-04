@@ -34,7 +34,7 @@ describe('runtime model injection', () => {
 
     expect(config.provider.openai.models['gpt-5.5']).toEqual(
       expect.objectContaining({
-        limit: { context: 530000, input: 400000, output: 130000 }
+        limit: { context: 1050000, input: 922000, output: 128000 }
       })
     )
     expect(config.provider.openai.models['gpt-5.5-fast']).toBeDefined()

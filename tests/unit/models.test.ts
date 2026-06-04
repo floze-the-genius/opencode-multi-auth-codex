@@ -10,7 +10,7 @@ describe('model defaults', () => {
     expect(models['gpt-5.5']).toEqual(
       expect.objectContaining({
         name: 'gpt-5.5 (OAuth)',
-        limit: { context: 530000, input: 400000, output: 130000 },
+        limit: { context: 1050000, input: 922000, output: 128000 },
         options: expect.objectContaining({
           reasoningEffort: 'medium'
         })
@@ -23,7 +23,7 @@ describe('model defaults', () => {
     expect(models['gpt-5.5-xhigh']).toBeDefined()
     expect(models['gpt-5.5-fast']).toEqual(
       expect.objectContaining({
-        limit: { context: 530000, input: 400000, output: 130000 },
+        limit: { context: 1050000, input: 922000, output: 128000 },
         options: expect.objectContaining({
           service_tier: 'priority'
         })
@@ -41,9 +41,9 @@ describe('model defaults', () => {
       }
     ])
 
-    expect(models['gpt-5.5']?.limit.context).toBe(530000)
-    expect(models['gpt-5.5']?.limit.input).toBe(400000)
+    expect(models['gpt-5.5']?.limit.context).toBe(1050000)
+    expect(models['gpt-5.5']?.limit.input).toBe(922000)
     expect(models['gpt-5.5-fast']?.options.service_tier).toBe('priority')
-    expect(models['gpt-5.5-medium']?.limit.context).toBe(530000)
+    expect(models['gpt-5.5-medium']?.limit.context).toBe(1050000)
   })
 })
