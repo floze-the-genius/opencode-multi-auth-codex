@@ -327,6 +327,7 @@ Outlook login often shows interstitial pages after password entry:
 - `OPENCODE_MULTI_AUTH_TOKEN_FAILURE_COOLDOWN_MS`
 - `OPENCODE_MULTI_AUTH_PROBE_EFFORT`
 - `OPENCODE_MULTI_AUTH_LIMITS_PROBE_MODELS`
+- `OPENCODE_MULTI_AUTH_CREDIT_ACCOUNT_ALIASES` -> comma-separated aliases allowed to spend paid credits after included Codex limits are exhausted. Unset means all accounts; `none` disables paid-credit fallback; `all` or `*` allows all.
 
 ### Model mapping and runtime behavior
 

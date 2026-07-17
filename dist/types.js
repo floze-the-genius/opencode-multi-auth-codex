@@ -1,3 +1,24 @@
+function parseCreditBalance(balance) {
+    if (typeof balance !== 'string')
+        return undefined;
+    const match = balance.replace(/,/g, '.').match(/-?\d+(?:\.\d+)?/);
+    if (!match)
+        return undefined;
+    const parsed = Number(match[0]);
+    return Number.isFinite(parsed) ? parsed : undefined;
+}
+export function hasUsableCredits(credits) {
+    if (!credits)
+        return false;
+    if (credits.unlimited === true)
+        return true;
+    if (credits.hasCredits === true)
+        return true;
+    if (credits.hasCredits === false)
+        return false;
+    const balance = parseCreditBalance(credits.balance);
+    return typeof balance === 'number' && balance > 0;
+}
 // Phase C: Calculate limits confidence based on probe timestamps
 export function calculateLimitsConfidence(lastProbeAt, lastErrorAt, limitStatus) {
     const now = Date.now();
@@ -123,6 +144,27 @@ export function validateSettings(settings) {
                 message: 'Total weights must sum to 1.0',
                 constraint: 'sum(weights) ≈ 1.0'
             });
+        }
+    }
+    if (settings.creditAccountAliases !== undefined) {
+        if (!Array.isArray(settings.creditAccountAliases)) {
+            errors.push({
+                field: 'creditAccountAliases',
+                message: 'Credit account aliases must be an array of account aliases',
+                constraint: 'creditAccountAliases must be string[]'
+            });
+        }
+        else {
+            for (const alias of settings.creditAccountAliases) {
+                if (typeof alias !== 'string' || !alias.trim()) {
+                    errors.push({
+                        field: 'creditAccountAliases',
+                        message: 'Credit account aliases must contain non-empty strings',
+                        constraint: 'every alias must be a non-empty string'
+                    });
+                    break;
+                }
+            }
         }
     }
     return errors;

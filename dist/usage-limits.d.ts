@@ -1,7 +1,8 @@
-import type { AccountCredentials, AccountRateLimits } from './types.js';
+import type { AccountCredentials, AccountCredits, AccountRateLimits } from './types.js';
 export interface UsageRateLimitFetchResult {
     rateLimits?: AccountRateLimits;
     planType?: string;
+    credits?: AccountCredits;
     rateLimitedUntil?: number;
     error?: string;
     shouldProbeFallback?: boolean;
@@ -10,6 +11,9 @@ export interface UsageRateLimitFetchResult {
     workspaceDeactivatedReason?: string;
     source: 'usage-api';
 }
+export interface UsageRateLimitFetchOptions {
+    creditsAllowed?: boolean;
+}
 interface UsageApiFailureClassification {
     shouldProbeFallback: boolean;
     authInvalid?: boolean;
@@ -17,6 +21,6 @@ interface UsageApiFailureClassification {
     workspaceDeactivatedReason?: string;
 }
 export declare function classifyUsageApiFailure(status: number, rawText: string): UsageApiFailureClassification;
-export declare function fetchUsageRateLimitsForAccount(account: AccountCredentials): Promise<UsageRateLimitFetchResult>;
+export declare function fetchUsageRateLimitsForAccount(account: AccountCredentials, options?: UsageRateLimitFetchOptions): Promise<UsageRateLimitFetchResult>;
 export {};
 //# sourceMappingURL=usage-limits.d.ts.map

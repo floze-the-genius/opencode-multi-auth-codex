@@ -9,6 +9,7 @@ import { DEFAULT_CONFIG, type AccountCredentials } from '../../src/types.js'
 const TEST_DIR = path.join(os.tmpdir(), `oma-rotation-test-${Date.now()}`)
 const TEST_STORE_FILE = path.join(TEST_DIR, 'accounts.json')
 const originalEnv = process.env
+const originalFetch = global.fetch
 
 function createAccount(alias: string, usageCount: number): AccountCredentials {
   return {
@@ -38,6 +39,7 @@ describe('Rotation Strategy Runtime Behavior', () => {
     delete process.env.OPENCODE_MULTI_AUTH_ROTATION_STRATEGY
     delete process.env.OPENCODE_MULTI_AUTH_CRITICAL_THRESHOLD
     delete process.env.OPENCODE_MULTI_AUTH_LOW_THRESHOLD
+    delete process.env.OPENCODE_MULTI_AUTH_CREDIT_ACCOUNT_ALIASES
 
     if (fs.existsSync(TEST_DIR)) {
       fs.rmSync(TEST_DIR, { recursive: true, force: true })
@@ -46,6 +48,7 @@ describe('Rotation Strategy Runtime Behavior', () => {
   })
 
   afterEach(() => {
+    global.fetch = originalFetch
     process.env = originalEnv
     if (fs.existsSync(TEST_DIR)) {
       fs.rmSync(TEST_DIR, { recursive: true, force: true })
@@ -140,5 +143,194 @@ describe('Rotation Strategy Runtime Behavior', () => {
     )
 
     expect(rotation).toBeNull()
+  })
+
+  it('keeps accounts with credits eligible after included limits are exhausted', async () => {
+    const store = loadStore()
+    store.accounts.noCredits = {
+      ...createAccount('noCredits', 0),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000
+    }
+    store.accounts.withCredits = {
+      ...createAccount('withCredits', 10),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000,
+      credits: {
+        hasCredits: true,
+        unlimited: false,
+        balance: '5.00',
+        updatedAt: Date.now()
+      }
+    }
+    saveStore(store)
+
+    const rotation = await getNextAccount(
+      {
+        ...DEFAULT_CONFIG,
+        rotationStrategy: 'least-used'
+      },
+      { model: 'gpt-5.4' }
+    )
+
+    expect(rotation?.account.alias).toBe('withCredits')
+  })
+
+  it('uses included limit accounts before paid credit accounts', async () => {
+    const store = loadStore()
+    store.accounts.includedLimit = {
+      ...createAccount('includedLimit', 20)
+    }
+    store.accounts.paidCredits = {
+      ...createAccount('paidCredits', 0),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000,
+      credits: {
+        hasCredits: true,
+        balance: '5.00',
+        updatedAt: Date.now()
+      }
+    }
+    saveStore(store)
+
+    const rotation = await getNextAccount(
+      {
+        ...DEFAULT_CONFIG,
+        rotationStrategy: 'least-used'
+      },
+      { model: 'gpt-5.4' }
+    )
+
+    expect(rotation?.account.alias).toBe('includedLimit')
+  })
+
+  it('only keeps accounts with credits eligible when their alias is allowed', async () => {
+    process.env.OPENCODE_MULTI_AUTH_CREDIT_ACCOUNT_ALIASES = 'personal'
+
+    const store = loadStore()
+    store.accounts.personal = {
+      ...createAccount('personal', 10),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000,
+      credits: {
+        hasCredits: true,
+        balance: '5.00',
+        updatedAt: Date.now()
+      }
+    }
+    store.accounts.work = {
+      ...createAccount('work', 0),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000,
+      credits: {
+        hasCredits: true,
+        balance: '5.00',
+        updatedAt: Date.now()
+      }
+    }
+    saveStore(store)
+
+    const rotation = await getNextAccount(
+      {
+        ...DEFAULT_CONFIG,
+        rotationStrategy: 'least-used'
+      },
+      { model: 'gpt-5.4' }
+    )
+
+    expect(rotation?.account.alias).toBe('personal')
+  })
+
+  it('does not use credits from disallowed accounts', async () => {
+    process.env.OPENCODE_MULTI_AUTH_CREDIT_ACCOUNT_ALIASES = 'personal'
+
+    const store = loadStore()
+    store.accounts.work = {
+      ...createAccount('work', 0),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000,
+      credits: {
+        hasCredits: true,
+        balance: '5.00',
+        updatedAt: Date.now()
+      }
+    }
+    saveStore(store)
+
+    const rotation = await getNextAccount(
+      {
+        ...DEFAULT_CONFIG,
+        rotationStrategy: 'least-used'
+      },
+      { model: 'gpt-5.4' }
+    )
+
+    expect(rotation).toBeNull()
+  })
+
+  it('refreshes usage once when all accounts are blocked and credits were added later', async () => {
+    process.env.OPENCODE_MULTI_AUTH_USAGE_BASE_URL = 'https://example.test/backend-api'
+    global.fetch = (async (_url, init) => {
+      const auth = new Headers(init?.headers).get('Authorization') || ''
+      const hasCredits = auth.includes('token-withCredits')
+      return new Response(JSON.stringify({
+        plan_type: 'pro',
+        credits: {
+          has_credits: hasCredits,
+          unlimited: false,
+          balance: hasCredits ? '5.00' : '0.00'
+        },
+        rate_limit: {
+          allowed: false,
+          limit_reached: true,
+          primary_window: { used_percent: 100, reset_after_seconds: 60 },
+          secondary_window: { used_percent: 100, reset_after_seconds: 120 }
+        }
+      }), { status: 200 })
+    }) as typeof fetch
+
+    const store = loadStore()
+    store.accounts.noCredits = {
+      ...createAccount('noCredits', 0),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000
+    }
+    store.accounts.withCredits = {
+      ...createAccount('withCredits', 10),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000
+    }
+    saveStore(store)
+
+    const rotation = await getNextAccount(
+      {
+        ...DEFAULT_CONFIG,
+        rotationStrategy: 'least-used'
+      },
+      { model: 'gpt-5.4' }
+    )
+
+    const reloaded = loadStore()
+    expect(rotation?.account.alias).toBe('withCredits')
+    expect(reloaded.accounts.withCredits.credits).toEqual(expect.objectContaining({
+      hasCredits: true,
+      balance: '5.00'
+    }))
+    expect(reloaded.accounts.withCredits.rateLimitedUntil).toBeUndefined()
+  })
+
+  it('tries soft rate-limited accounts when usage refresh cannot confirm credits', async () => {
+    process.env.OPENCODE_MULTI_AUTH_USAGE_BASE_URL = 'https://example.test/backend-api'
+    global.fetch = (async () => new Response('{}', { status: 403 })) as typeof fetch
+
+    const store = loadStore()
+    store.accounts.alpha = {
+      ...createAccount('alpha', 0),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000
+    }
+    store.accounts.beta = {
+      ...createAccount('beta', 10),
+      rateLimitedUntil: Date.now() + 60 * 60 * 1000
+    }
+    saveStore(store)
+
+    const rotation = await getNextAccount({
+      ...DEFAULT_CONFIG,
+      rotationStrategy: 'least-used'
+    })
+
+    expect(rotation?.account.alias).toBe('alpha')
   })
 })

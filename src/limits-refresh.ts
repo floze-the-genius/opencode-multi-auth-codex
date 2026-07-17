@@ -10,6 +10,7 @@ import { probeRateLimitsForAccount } from './probe-limits.js'
 import { logError, logInfo } from './logger.js'
 import { DEFAULT_CONFIG, calculateLimitsConfidence } from './types.js'
 import { fetchUsageRateLimitsForAccount } from './usage-limits.js'
+import { isCreditsAllowedForAlias } from './credits-policy.js'
 import type { AccountCredentials } from './types.js'
 
 export interface LimitRefreshResult {
@@ -21,24 +22,29 @@ export interface LimitRefreshResult {
 export async function refreshRateLimitsForAccount(account: AccountCredentials): Promise<LimitRefreshResult> {
   updateAccount(account.alias, { limitStatus: 'running', limitError: undefined })
   logInfo(`Refreshing limits for ${account.alias}`)
-  const usage = await fetchUsageRateLimitsForAccount(account)
+  const usage = await fetchUsageRateLimitsForAccount(account, {
+    creditsAllowed: isCreditsAllowedForAlias(account.alias)
+  })
 
-  if (usage.rateLimits) {
+  if (usage.rateLimits || usage.credits) {
     const now = Date.now()
     const updates: Partial<AccountCredentials> = {
-      rateLimits: mergeRateLimits(account.rateLimits, usage.rateLimits),
       limitStatus: 'success',
       limitError: undefined,
       lastLimitProbeAt: now,
       limitsConfidence: calculateLimitsConfidence(now, account.lastLimitErrorAt, 'success'),
+      rateLimitedUntil: usage.rateLimitedUntil,
       authInvalid: false,
       authInvalidatedAt: undefined
     }
+    if (usage.rateLimits) {
+      updates.rateLimits = mergeRateLimits(account.rateLimits, usage.rateLimits)
+    }
+    if (usage.credits) {
+      updates.credits = usage.credits
+    }
     if (usage.planType) {
       updates.planType = usage.planType
-    }
-    if (typeof usage.rateLimitedUntil === 'number' && usage.rateLimitedUntil > now) {
-      updates.rateLimitedUntil = usage.rateLimitedUntil
     }
     updateAccount(account.alias, updates)
     logInfo(`Limits refreshed for ${account.alias} via usage API`)

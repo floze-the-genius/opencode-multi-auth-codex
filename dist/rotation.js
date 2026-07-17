@@ -3,6 +3,9 @@ import { ensureValidToken } from './auth.js';
 import { decodeJwtPayload, getPlanTypeFromClaims } from './codex-auth.js';
 import { isForceActive, checkAndAutoClearForce, getForceState, clearForce } from './force-mode.js';
 import { getRuntimeSettings, calculateWeightedSelection } from './settings.js';
+import { mergeRateLimits } from './rate-limits.js';
+import { fetchUsageRateLimitsForAccount } from './usage-limits.js';
+import { getCreditAccountAliases, hasUsableAllowedCredits, isCreditsAllowedForAlias } from './credits-policy.js';
 const HEALTH_HYSTERESIS_MS = 10_000;
 const RECENT_FAILURE_WINDOW_MS = 60_000;
 function shuffled(input) {
@@ -51,13 +54,15 @@ function getPreferredPools(store, availableAliases, selection) {
         fallbackAliases: []
     };
 }
-function evaluateAccountHealth(acc, now) {
-    const wasRateLimited = !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now - HEALTH_HYSTERESIS_MS);
+function evaluateAccountHealth(acc, now, creditAccountAliases = getCreditAccountAliases()) {
+    const hasCredits = hasUsableAllowedCredits(acc, creditAccountAliases);
+    const isRateLimited = !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now);
+    const wasRateLimited = !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now - HEALTH_HYSTERESIS_MS && !hasCredits);
     const wasModelUnsupported = !!(acc.modelUnsupportedUntil && acc.modelUnsupportedUntil > now - HEALTH_HYSTERESIS_MS);
     const wasWorkspaceDeactivated = !!(acc.workspaceDeactivatedUntil && acc.workspaceDeactivatedUntil > now - HEALTH_HYSTERESIS_MS);
     // Phase D: Check if account is disabled
     const isDisabled = acc.enabled === false;
-    const currentlyBlocked = !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now) ||
+    const currentlyBlocked = (isRateLimited && !hasCredits) ||
         !!(acc.modelUnsupportedUntil && acc.modelUnsupportedUntil > now) ||
         !!(acc.workspaceDeactivatedUntil && acc.workspaceDeactivatedUntil > now) ||
         !!acc.authInvalid ||
@@ -90,6 +95,96 @@ function evaluateAccountHealth(acc, now) {
         priority
     };
 }
+function shouldRefreshRateLimitState(acc, now, creditAccountAliases = getCreditAccountAliases()) {
+    return shouldTrySoftRateLimitedAccount(acc, now, creditAccountAliases) && !hasUsableAllowedCredits(acc, creditAccountAliases);
+}
+function shouldTrySoftRateLimitedAccount(acc, now, creditAccountAliases = getCreditAccountAliases()) {
+    return (!!(acc.rateLimitedUntil && acc.rateLimitedUntil > now) &&
+        isCreditsAllowedForAlias(acc.alias, creditAccountAliases) &&
+        !acc.authInvalid &&
+        acc.enabled !== false &&
+        !(acc.modelUnsupportedUntil && acc.modelUnsupportedUntil > now) &&
+        !(acc.workspaceDeactivatedUntil && acc.workspaceDeactivatedUntil > now));
+}
+function isUsingPaidCredits(acc, now, creditAccountAliases) {
+    return !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now) &&
+        hasUsableAllowedCredits(acc, creditAccountAliases);
+}
+function debugAccountFiltering(accounts, aliases, now, creditAccountAliases) {
+    if (process.env.OPENCODE_MULTI_AUTH_DEBUG !== '1')
+        return;
+    const creditPolicy = Array.isArray(creditAccountAliases)
+        ? creditAccountAliases.join(',')
+        : '<all>';
+    console.warn(`[multi-auth] Account filter debug: creditPolicy=${creditPolicy}`);
+    for (const alias of aliases) {
+        const acc = accounts[alias];
+        if (!acc)
+            continue;
+        const allowedCredits = hasUsableAllowedCredits(acc, creditAccountAliases);
+        const blockers = [];
+        if (acc.enabled === false)
+            blockers.push('disabled');
+        if (acc.authInvalid)
+            blockers.push('authInvalid');
+        if (acc.rateLimitedUntil && acc.rateLimitedUntil > now && !allowedCredits) {
+            blockers.push(`rateLimitedUntil=${new Date(acc.rateLimitedUntil).toISOString()}`);
+        }
+        if (acc.modelUnsupportedUntil && acc.modelUnsupportedUntil > now) {
+            blockers.push(`modelUnsupportedUntil=${new Date(acc.modelUnsupportedUntil).toISOString()}`);
+        }
+        if (acc.workspaceDeactivatedUntil && acc.workspaceDeactivatedUntil > now) {
+            blockers.push(`workspaceDeactivatedUntil=${new Date(acc.workspaceDeactivatedUntil).toISOString()}`);
+        }
+        console.warn(`[multi-auth] Account filter debug: alias=${alias} ` +
+            `creditsAllowed=${isCreditsAllowedForAlias(alias, creditAccountAliases)} ` +
+            `hasUsableAllowedCredits=${allowedCredits} ` +
+            `credits=${acc.credits ? JSON.stringify({
+                hasCredits: acc.credits.hasCredits,
+                unlimited: acc.credits.unlimited,
+                balance: acc.credits.balance ?? null
+            }) : 'null'} ` +
+            `blockers=${blockers.length > 0 ? blockers.join('|') : 'none'}`);
+    }
+}
+async function refreshUsageForRateLimitedAccounts(aliases, now, creditAccountAliases) {
+    for (const alias of aliases) {
+        let account = loadStore().accounts[alias];
+        if (!account || !shouldRefreshRateLimitState(account, now, creditAccountAliases))
+            continue;
+        const token = await ensureValidToken(alias);
+        if (!token)
+            continue;
+        account = loadStore().accounts[alias];
+        if (!account || !shouldRefreshRateLimitState(account, now, creditAccountAliases))
+            continue;
+        const usage = await fetchUsageRateLimitsForAccount(account, {
+            creditsAllowed: isCreditsAllowedForAlias(account.alias, creditAccountAliases)
+        });
+        if (!usage.rateLimits && !usage.credits) {
+            if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
+                console.warn(`[multi-auth] Usage refresh debug: alias=${alias} error=${usage.error || 'no limits or credits returned'}`);
+            }
+            continue;
+        }
+        const updates = {
+            limitStatus: 'success',
+            limitError: undefined,
+            lastLimitProbeAt: Date.now(),
+            rateLimitedUntil: usage.rateLimitedUntil
+        };
+        if (usage.rateLimits) {
+            updates.rateLimits = mergeRateLimits(account.rateLimits, usage.rateLimits);
+        }
+        if (usage.credits) {
+            updates.credits = usage.credits;
+        }
+        if (usage.planType) {
+            updates.planType = usage.planType;
+        }
+        updateAccount(alias, updates);
+    }
+}
 export async function getNextAccount(config, selection) {
     // Phase E: Check and auto-clear expired/invalid force state
     const autoClear = checkAndAutoClearForce();
@@ -111,12 +206,13 @@ export async function getNextAccount(config, selection) {
         return null;
     }
     const now = Date.now();
+    const creditAccountAliases = getCreditAccountAliases();
     // Phase E: If force mode is active, never fall back to another alias.
     if (forceActive && forceState.forcedAlias) {
         const forcedAlias = forceState.forcedAlias;
         const forcedAccount = store.accounts[forcedAlias];
         if (forcedAccount) {
-            const health = evaluateAccountHealth(forcedAccount, now);
+            const health = evaluateAccountHealth(forcedAccount, now, creditAccountAliases);
             if (health.isHealthy) {
                 const token = await ensureValidToken(forcedAlias);
                 if (token) {
@@ -158,15 +254,39 @@ export async function getNextAccount(config, selection) {
     const healthMap = new Map();
     for (const alias of aliases) {
         const acc = store.accounts[alias];
-        healthMap.set(alias, evaluateAccountHealth(acc, now));
+        healthMap.set(alias, evaluateAccountHealth(acc, now, creditAccountAliases));
     }
-    const availableAliases = aliases.filter(alias => {
+    let availableAliases = aliases.filter(alias => {
         const health = healthMap.get(alias);
         return health?.isHealthy === true;
     });
     if (availableAliases.length === 0) {
-        console.warn('[multi-auth] No available accounts (rate-limited or invalidated).');
-        return null;
+        debugAccountFiltering(store.accounts, aliases, now, creditAccountAliases);
+        await refreshUsageForRateLimitedAccounts(aliases, now, creditAccountAliases);
+        store = loadStore();
+        healthMap.clear();
+        for (const alias of aliases) {
+            const acc = store.accounts[alias];
+            if (acc)
+                healthMap.set(alias, evaluateAccountHealth(acc, Date.now(), creditAccountAliases));
+        }
+        availableAliases = aliases.filter(alias => {
+            const health = healthMap.get(alias);
+            return health?.isHealthy === true;
+        });
+        if (availableAliases.length === 0) {
+            debugAccountFiltering(store.accounts, aliases, Date.now(), creditAccountAliases);
+            const softRateLimitedAliases = aliases.filter(alias => {
+                const acc = store.accounts[alias];
+                return acc ? shouldTrySoftRateLimitedAccount(acc, Date.now(), creditAccountAliases) : false;
+            });
+            if (softRateLimitedAliases.length === 0) {
+                console.warn('[multi-auth] No available accounts (rate-limited or invalidated).');
+                return null;
+            }
+            console.warn('[multi-auth] All accounts are marked rate-limited; trying soft-limited accounts in case credits are available.');
+            availableAliases = softRateLimitedAliases;
+        }
     }
     const tokenFailureCooldownMs = (() => {
         const raw = process.env.OPENCODE_MULTI_AUTH_TOKEN_FAILURE_COOLDOWN_MS;
@@ -263,10 +383,30 @@ export async function getNextAccount(config, selection) {
             }
         }
     };
-    const { primaryAliases, fallbackAliases } = getPreferredPools(store, availableAliases, selection);
-    const primary = buildCandidates(primaryAliases);
-    const fallback = fallbackAliases.length > 0 ? buildCandidates(fallbackAliases) : { aliases: [] };
-    const candidates = [...primary.aliases, ...fallback.aliases];
+    const includedLimitAliases = availableAliases.filter(alias => {
+        const acc = store.accounts[alias];
+        return acc ? !isUsingPaidCredits(acc, Date.now(), creditAccountAliases) : false;
+    });
+    const paidCreditAliases = availableAliases.filter(alias => {
+        const acc = store.accounts[alias];
+        return acc ? isUsingPaidCredits(acc, Date.now(), creditAccountAliases) : false;
+    });
+    const buildCandidateGroups = (candidateAliases) => {
+        if (candidateAliases.length === 0)
+            return [];
+        const { primaryAliases, fallbackAliases } = getPreferredPools(store, candidateAliases, selection);
+        const groups = [];
+        if (primaryAliases.length > 0)
+            groups.push(buildCandidates(primaryAliases));
+        if (fallbackAliases.length > 0)
+            groups.push(buildCandidates(fallbackAliases));
+        return groups;
+    };
+    const candidateGroups = [
+        ...buildCandidateGroups(includedLimitAliases),
+        ...buildCandidateGroups(paidCreditAliases)
+    ];
+    const candidates = candidateGroups.flatMap(group => group.aliases);
     for (const candidate of candidates) {
         const token = await ensureValidToken(candidate);
         if (!token) {
@@ -284,7 +424,7 @@ export async function getNextAccount(config, selection) {
         });
         store.activeAlias = candidate;
         store.lastRotation = now;
-        const nextIndex = primary.aliases.includes(candidate) ? primary.nextIndex : fallback.nextIndex;
+        const nextIndex = candidateGroups.find(group => group.aliases.includes(candidate))?.nextIndex;
         if (nextIndex) {
             store.rotationIndex = nextIndex(candidate);
         }
@@ -308,7 +448,8 @@ export function markRateLimited(alias, rateLimitedUntil) {
     const safeUntil = Math.max(rateLimitedUntil, now + 1000);
     const seconds = Math.max(1, Math.ceil((safeUntil - now) / 1000));
     updateAccount(alias, {
-        rateLimitedUntil: safeUntil
+        rateLimitedUntil: safeUntil,
+        credits: undefined
     });
     console.warn(`[multi-auth] Account ${alias} marked rate-limited for ${seconds}s`);
 }

@@ -79,6 +79,28 @@ describe('Store Operations', () => {
     expect(reloaded.accounts['test-alias'].userId).toBe('user-456')
   })
 
+  it('should persist credit state across reload', () => {
+    addAccount('credited-alias', {
+      accessToken: 'test-access-token',
+      refreshToken: 'test-refresh-token',
+      expiresAt: Date.now() + 3600000,
+      credits: {
+        hasCredits: true,
+        unlimited: false,
+        balance: '7.50',
+        updatedAt: Date.now()
+      }
+    })
+
+    const reloaded = loadStore()
+    expect(reloaded.accounts['credited-alias'].credits).toEqual(expect.objectContaining({
+      hasCredits: true,
+      unlimited: false,
+      balance: '7.50',
+      updatedAt: expect.any(Number)
+    }))
+  })
+
   it('should remove an account', () => {
     addAccount('alias1', {
       accessToken: 'token1',

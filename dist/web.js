@@ -3588,6 +3588,9 @@ export function startWebConsole(options) {
                 if (body.accountWeights) {
                     updates.accountWeights = body.accountWeights;
                 }
+                if (Array.isArray(body.creditAccountAliases)) {
+                    updates.creditAccountAliases = body.creditAccountAliases;
+                }
                 // Phase G: Handle feature flags
                 if (body.featureFlags && typeof body.featureFlags === 'object') {
                     updates.featureFlags = body.featureFlags;

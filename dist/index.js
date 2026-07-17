@@ -3,11 +3,13 @@ import { syncAuthFromOpenCode } from './auth-sync.js';
 import { createAuthorizationFlow, loginAccount } from './auth.js';
 import { extractRateLimitUpdate, getBlockingRateLimitResetAt, mergeRateLimits, parseRateLimitResetFromError, parseRetryAfterHeader } from './rate-limits.js';
 import { getNextAccount, markAuthInvalid, markModelUnsupported, markRateLimited, markWorkspaceDeactivated } from './rotation.js';
+import { refreshRateLimitsForAccount } from './limits-refresh.js';
 import { getDefaultModels } from './models.js';
 import { getForceState, isForceActive } from './force-mode.js';
 import { getRuntimeSettings } from './settings.js';
 import { listAccounts, updateAccount, loadStore } from './store.js';
 import { DEFAULT_CONFIG } from './types.js';
+import { getCreditAccountAliases, hasUsableAllowedCredits, isCreditsAllowedForAlias } from './credits-policy.js';
 import { Errors } from './errors.js';
 const PROVIDER_ID = 'openai';
 const CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
@@ -545,14 +547,26 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                     const store = loadStore();
                     const forceState = getForceState();
                     const forcePinned = isForceActive() && !!forceState.forcedAlias;
-                    const eligibleCount = Object.values(store.accounts).filter(acc => {
+                    const accountsForAttempts = Object.values(store.accounts);
+                    const creditAccountAliases = getCreditAccountAliases();
+                    const normalEligibleCount = accountsForAttempts.filter(acc => {
                         const now = Date.now();
-                        return (!acc.rateLimitedUntil || acc.rateLimitedUntil < now) &&
+                        return (!acc.rateLimitedUntil || acc.rateLimitedUntil < now || hasUsableAllowedCredits(acc, creditAccountAliases)) &&
                             (!acc.modelUnsupportedUntil || acc.modelUnsupportedUntil < now) &&
                             (!acc.workspaceDeactivatedUntil || acc.workspaceDeactivatedUntil < now) &&
                             !acc.authInvalid &&
                             acc.enabled !== false;
                     }).length;
+                    const softRateLimitedCount = accountsForAttempts.filter(acc => {
+                        const now = Date.now();
+                        return !!(acc.rateLimitedUntil && acc.rateLimitedUntil > now) &&
+                            isCreditsAllowedForAlias(acc.alias, creditAccountAliases) &&
+                            (!acc.modelUnsupportedUntil || acc.modelUnsupportedUntil < now) &&
+                            (!acc.workspaceDeactivatedUntil || acc.workspaceDeactivatedUntil < now) &&
+                            !acc.authInvalid &&
+                            acc.enabled !== false;
+                    }).length;
+                    const eligibleCount = normalEligibleCount > 0 ? normalEligibleCount : softRateLimitedCount;
                     const maxAttempts = forcePinned ? 1 : Math.max(1, eligibleCount);
                     const triedAliases = new Set();
                     let attempt = 0;
@@ -716,6 +730,16 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                                 const errorText = extractErrorMessage(errorData);
                                 const rateLimitedUntil = resolveRateLimitedUntil(mergedRateLimits, res.headers, errorText, pluginConfig.rateLimitCooldownMs);
                                 markRateLimited(account.alias, rateLimitedUntil);
+                                if (isCreditsAllowedForAlias(account.alias)) {
+                                    const latestAccount = loadStore().accounts[account.alias];
+                                    if (latestAccount) {
+                                        await refreshRateLimitsForAccount(latestAccount).catch((err) => {
+                                            if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
+                                                console.warn(`[multi-auth] Credit refresh after 429 failed for ${account.alias}: ${err}`);
+                                            }
+                                        });
+                                    }
+                                }
                                 if (attempt < maxAttempts) {
                                     continue;
                                 }

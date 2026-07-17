@@ -92,6 +92,7 @@ function validateAccount(acc, alias) {
         ? acc.rateLimitHistory.filter((entry) => hasMeaningfulRateLimits({ fiveHour: entry?.fiveHour, weekly: entry?.weekly }))
         : undefined;
     const rateLimits = hasMeaningfulRateLimits(acc.rateLimits) ? acc.rateLimits : undefined;
+    const credits = validateCredits(acc.credits);
     return {
         alias,
         accessToken: acc.accessToken,
@@ -124,6 +125,7 @@ function validateAccount(acc, alias) {
         disabledBy: typeof acc.disabledBy === 'string' ? acc.disabledBy : undefined,
         disableReason: typeof acc.disableReason === 'string' ? acc.disableReason : undefined,
         rateLimits,
+        credits,
         rateLimitHistory: rateLimitHistory && rateLimitHistory.length > 0 ? rateLimitHistory : undefined,
         limitStatus: typeof acc.limitStatus === 'string' ? acc.limitStatus : undefined,
         limitError: typeof acc.limitError === 'string' ? acc.limitError : undefined,
@@ -139,6 +141,20 @@ function validateAccount(acc, alias) {
         notes: typeof acc.notes === 'string' ? acc.notes : undefined,
         source: acc.source === 'opencode' || acc.source === 'codex' ? acc.source : undefined
     };
+}
+function validateCredits(raw) {
+    if (!raw || typeof raw !== 'object')
+        return undefined;
+    const credits = {};
+    if (typeof raw.hasCredits === 'boolean')
+        credits.hasCredits = raw.hasCredits;
+    if (typeof raw.unlimited === 'boolean')
+        credits.unlimited = raw.unlimited;
+    if (typeof raw.balance === 'string' || raw.balance === null)
+        credits.balance = raw.balance;
+    if (typeof raw.updatedAt === 'number')
+        credits.updatedAt = raw.updatedAt;
+    return Object.keys(credits).length > 0 ? credits : undefined;
 }
 function validateStore(data) {
     if (!data || typeof data !== 'object')

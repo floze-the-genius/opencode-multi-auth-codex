@@ -35,6 +35,7 @@ export interface AccountCredentials {
   disabledBy?: string
   disableReason?: string
   rateLimits?: AccountRateLimits
+  credits?: AccountCredits
   rateLimitHistory?: RateLimitHistoryEntry[]
   limitStatus?: LimitStatus
   limitError?: string
@@ -57,6 +58,31 @@ export interface RateLimitWindow {
 export interface AccountRateLimits {
   fiveHour?: RateLimitWindow
   weekly?: RateLimitWindow
+}
+
+export interface AccountCredits {
+  hasCredits?: boolean
+  unlimited?: boolean
+  balance?: string | null
+  updatedAt?: number
+}
+
+function parseCreditBalance(balance: string | null | undefined): number | undefined {
+  if (typeof balance !== 'string') return undefined
+  const match = balance.replace(/,/g, '.').match(/-?\d+(?:\.\d+)?/)
+  if (!match) return undefined
+  const parsed = Number(match[0])
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+export function hasUsableCredits(credits: AccountCredits | undefined | null): boolean {
+  if (!credits) return false
+  if (credits.unlimited === true) return true
+  if (credits.hasCredits === true) return true
+  if (credits.hasCredits === false) return false
+
+  const balance = parseCreditBalance(credits.balance)
+  return typeof balance === 'number' && balance > 0
 }
 
 export interface RateLimitSnapshot {
@@ -144,6 +170,7 @@ export interface PluginConfig {
   modelUnsupportedCooldownMs: number // How long to skip accounts that don't support the requested model
   workspaceDeactivatedCooldownMs: number // How long to skip accounts with deactivated workspaces
   modelFilter: RegExp // Which models to expose
+  creditAccountAliases?: string[] // If set, only these aliases may continue with paid credits. ['*'] means all.
 }
 
 // OpenCode provider model definition
@@ -188,6 +215,10 @@ export interface RotationSettings {
   
   // Account weights for weighted rotation (0-1, sum should be 1)
   accountWeights: Record<string, number>
+
+  // If unset, credits are allowed for all accounts. If set, only listed aliases
+  // may continue after included Codex limits are exhausted. ['*'] means all.
+  creditAccountAliases?: string[]
   
   // Phase G: Feature flags
   featureFlags?: FeatureFlags
@@ -320,6 +351,27 @@ export function validateSettings(settings: Partial<RotationSettings>): SettingsV
         message: 'Total weights must sum to 1.0',
         constraint: 'sum(weights) ≈ 1.0'
       })
+    }
+  }
+
+  if (settings.creditAccountAliases !== undefined) {
+    if (!Array.isArray(settings.creditAccountAliases)) {
+      errors.push({
+        field: 'creditAccountAliases',
+        message: 'Credit account aliases must be an array of account aliases',
+        constraint: 'creditAccountAliases must be string[]'
+      })
+    } else {
+      for (const alias of settings.creditAccountAliases) {
+        if (typeof alias !== 'string' || !alias.trim()) {
+          errors.push({
+            field: 'creditAccountAliases',
+            message: 'Credit account aliases must contain non-empty strings',
+            constraint: 'every alias must be a non-empty string'
+          })
+          break
+        }
+      }
     }
   }
   
