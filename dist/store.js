@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'node:crypto';
+import { withFileLock } from './file-lock.js';
 import { hasMeaningfulRateLimits } from './rate-limits.js';
 const STORE_DIR_ENV = 'OPENCODE_MULTI_AUTH_STORE_DIR';
 const STORE_FILE_ENV = 'OPENCODE_MULTI_AUTH_STORE_FILE';
@@ -24,8 +25,6 @@ const CURRENT_STORE_VERSION = 2;
 let storeLocked = false;
 let lastStoreError = null;
 let lastStoreEncrypted = false;
-let writeLock = false;
-let writeLockQueue = [];
 function ensureDir() {
     const dir = getStoreDir();
     if (!fs.existsSync(dir)) {
@@ -228,24 +227,6 @@ function loadLastKnownGood() {
         return null;
     }
 }
-async function acquireWriteLock() {
-    if (!writeLock) {
-        writeLock = true;
-        return;
-    }
-    return new Promise((resolve) => {
-        writeLockQueue.push(resolve);
-    });
-}
-function releaseWriteLock() {
-    const next = writeLockQueue.shift();
-    if (next) {
-        next();
-    }
-    else {
-        writeLock = false;
-    }
-}
 function buildSnapshot(window) {
     if (!window)
         return undefined;
@@ -351,7 +332,7 @@ export function loadStore() {
     }
     return emptyStore();
 }
-export function saveStore(store) {
+function saveStoreUnlocked(store) {
     ensureDir();
     if (storeLocked) {
         console.error('[multi-auth] Store locked; refusing to overwrite encrypted file.');
@@ -436,14 +417,24 @@ export function saveStore(store) {
     }
     saveLastKnownGood(store);
 }
+export function saveStore(store) {
+    withFileLock(getStoreFile(), () => {
+        saveStoreUnlocked(store);
+    });
+}
+function withStoreLock(fn) {
+    return withFileLock(getStoreFile(), fn);
+}
+export function mutateStore(fn) {
+    return withStoreLock(() => {
+        const store = loadStore();
+        const result = fn(store);
+        saveStoreUnlocked(store);
+        return result;
+    });
+}
 export async function withWriteLock(fn) {
-    await acquireWriteLock();
-    try {
-        return fn();
-    }
-    finally {
-        releaseWriteLock();
-    }
+    return withStoreLock(fn);
 }
 export function getStoreDiagnostics() {
     return {
@@ -455,75 +446,75 @@ export function getStoreDiagnostics() {
     };
 }
 export function addAccount(alias, creds) {
-    const store = loadStore();
-    const entry = buildHistoryEntry(creds.rateLimits);
-    store.accounts[alias] = {
-        ...creds,
-        alias,
-        usageCount: 0,
-        rateLimitHistory: entry ? [entry] : creds.rateLimitHistory
-    };
-    if (!store.activeAlias) {
-        store.activeAlias = alias;
-    }
-    saveStore(store);
-    return store;
+    return mutateStore((store) => {
+        const entry = buildHistoryEntry(creds.rateLimits);
+        store.accounts[alias] = {
+            ...creds,
+            alias,
+            usageCount: 0,
+            rateLimitHistory: entry ? [entry] : creds.rateLimitHistory
+        };
+        if (!store.activeAlias) {
+            store.activeAlias = alias;
+        }
+        return store;
+    });
 }
 export function removeAccount(alias) {
-    const store = loadStore();
-    delete store.accounts[alias];
-    if (store.activeAlias === alias) {
-        const remaining = Object.keys(store.accounts);
-        store.activeAlias = remaining[0] || null;
-    }
-    saveStore(store);
-    return store;
+    return mutateStore((store) => {
+        delete store.accounts[alias];
+        if (store.activeAlias === alias) {
+            const remaining = Object.keys(store.accounts);
+            store.activeAlias = remaining[0] || null;
+        }
+        return store;
+    });
 }
 export function updateAccount(alias, updates) {
-    const store = loadStore();
-    if (store.accounts[alias]) {
-        const current = store.accounts[alias];
-        const next = { ...current, ...updates };
-        if (updates.rateLimits || next.rateLimits) {
-            const entry = buildHistoryEntry(next.rateLimits);
-            if (entry) {
-                next.rateLimitHistory = appendHistory(current.rateLimitHistory, entry);
+    return mutateStore((store) => {
+        if (store.accounts[alias]) {
+            const current = store.accounts[alias];
+            const next = { ...current, ...updates };
+            if (updates.rateLimits || next.rateLimits) {
+                const entry = buildHistoryEntry(next.rateLimits);
+                if (entry) {
+                    next.rateLimitHistory = appendHistory(current.rateLimitHistory, entry);
+                }
             }
+            store.accounts[alias] = next;
         }
-        store.accounts[alias] = next;
-        saveStore(store);
-    }
-    return store;
+        return store;
+    });
 }
 export function setActiveAlias(alias) {
-    const store = loadStore();
-    const now = Date.now();
-    const previousAlias = store.activeAlias;
-    if (alias === null) {
-        store.activeAlias = null;
-    }
-    else if (store.accounts[alias]) {
-        if (previousAlias && previousAlias !== alias && store.accounts[previousAlias]) {
-            store.accounts[previousAlias] = {
-                ...store.accounts[previousAlias],
-                lastActiveUntil: now
+    return mutateStore((store) => {
+        const now = Date.now();
+        const previousAlias = store.activeAlias;
+        if (alias === null) {
+            store.activeAlias = null;
+        }
+        else if (store.accounts[alias]) {
+            if (previousAlias && previousAlias !== alias && store.accounts[previousAlias]) {
+                store.accounts[previousAlias] = {
+                    ...store.accounts[previousAlias],
+                    lastActiveUntil: now
+                };
+            }
+            store.activeAlias = alias;
+            store.accounts[alias] = {
+                ...store.accounts[alias],
+                lastSeenAt: now,
+                lastActiveUntil: undefined
             };
+            const aliases = Object.keys(store.accounts);
+            const idx = aliases.indexOf(alias);
+            if (idx >= 0) {
+                store.rotationIndex = idx;
+            }
+            store.lastRotation = now;
         }
-        store.activeAlias = alias;
-        store.accounts[alias] = {
-            ...store.accounts[alias],
-            lastSeenAt: now,
-            lastActiveUntil: undefined
-        };
-        const aliases = Object.keys(store.accounts);
-        const idx = aliases.indexOf(alias);
-        if (idx >= 0) {
-            store.rotationIndex = idx;
-        }
-        store.lastRotation = now;
-    }
-    saveStore(store);
-    return store;
+        return store;
+    });
 }
 export function getActiveAccount() {
     const store = loadStore();

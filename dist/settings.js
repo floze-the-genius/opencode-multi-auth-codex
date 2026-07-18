@@ -1,5 +1,4 @@
-import { loadStore, saveStore } from './store.js';
-import { logInfo, logError } from './logger.js';
+import { loadStore, mutateStore } from './store.js';
 import { DEFAULT_ROTATION_SETTINGS, WEIGHTED_PRESETS, validateSettings } from './types.js';
 function resolveSettings(includeEnvOverrides) {
     const store = loadStore();
@@ -17,7 +16,7 @@ function resolveSettings(includeEnvOverrides) {
     // Layer 2: Environment variables override (optional for runtime behavior)
     if (includeEnvOverrides) {
         const envStrategy = process.env.OPENCODE_MULTI_AUTH_ROTATION_STRATEGY;
-        if (envStrategy && ['round-robin', 'least-used', 'random', 'weighted-round-robin'].includes(envStrategy)) {
+        if (envStrategy && ['round-robin', 'least-used', 'random', 'weighted-round-robin', 'use-up'].includes(envStrategy)) {
             settings.rotationStrategy = envStrategy;
             source = 'env';
         }
@@ -37,6 +36,11 @@ function resolveSettings(includeEnvOverrides) {
                 source = 'env';
             }
         }
+        const envDebug = process.env.OPENCODE_MULTI_AUTH_DEBUG;
+        if (envDebug && (envDebug === '1' || envDebug.toLowerCase() === 'true')) {
+            settings.debug = true;
+            source = 'env';
+        }
         // Phase G: Feature flag environment overrides
         const envAntigravity = process.env.OPENCODE_MULTI_AUTH_ANTIGRAVITY_ENABLED;
         if (envAntigravity) {
@@ -51,7 +55,7 @@ function resolveSettings(includeEnvOverrides) {
     // Validate final settings
     const errors = validateSettings(settings);
     if (errors.length > 0) {
-        logError(`Settings validation errors: ${errors.map(e => e.message).join(', ')}`);
+        console.error(`[multi-auth] Settings validation errors: ${errors.map(e => e.message).join(', ')}`);
     }
     return { settings, source, errors: errors.length > 0 ? errors : undefined };
 }
@@ -65,36 +69,40 @@ export function getRuntimeSettings() {
 }
 // Phase F: Update settings with validation
 export function updateSettings(updates, actor = 'system') {
-    const current = getRuntimeSettings();
-    // Merge updates with current settings
-    const newSettings = {
-        ...current.settings,
-        ...updates,
-        updatedAt: Date.now(),
-        updatedBy: actor
-    };
-    // Validate new settings
-    const errors = validateSettings(newSettings);
-    if (errors.length > 0) {
-        logError(`Settings update failed validation: ${errors.map(e => e.message).join(', ')}`);
-        return { success: false, errors };
+    let result = { success: false };
+    mutateStore((store) => {
+        const newSettings = {
+            ...DEFAULT_ROTATION_SETTINGS,
+            ...(store.settings || {}),
+            ...updates,
+            updatedAt: Date.now(),
+            updatedBy: actor
+        };
+        const errors = validateSettings(newSettings);
+        if (errors.length > 0) {
+            console.error(`[multi-auth] Settings update failed validation: ${errors.map(e => e.message).join(', ')}`);
+            result = { success: false, errors };
+            return store;
+        }
+        store.settings = newSettings;
+        // Keep legacy field in sync for force-mode compatibility.
+        store.rotationStrategy = newSettings.rotationStrategy;
+        result = { success: true, settings: newSettings };
+        return store;
+    });
+    if (result.success) {
+        console.log(`[multi-auth] Settings updated by ${actor}: ${JSON.stringify(updates)}`);
     }
-    // Save to store
-    const store = loadStore();
-    store.settings = newSettings;
-    // Keep legacy field in sync for force-mode compatibility.
-    store.rotationStrategy = newSettings.rotationStrategy;
-    saveStore(store);
-    logInfo(`Settings updated by ${actor}: ${JSON.stringify(updates)}`);
-    return { success: true, settings: newSettings };
+    return result;
 }
 // Phase F: Reset settings to defaults
 export function resetSettings(actor = 'system') {
-    const store = loadStore();
-    delete store.settings;
-    store.rotationStrategy = DEFAULT_ROTATION_SETTINGS.rotationStrategy;
-    saveStore(store);
-    logInfo(`Settings reset to defaults by ${actor}`);
+    mutateStore((store) => {
+        delete store.settings;
+        store.rotationStrategy = DEFAULT_ROTATION_SETTINGS.rotationStrategy;
+        return store;
+    });
+    console.log(`[multi-auth] Settings reset to defaults by ${actor}`);
     return { ...DEFAULT_ROTATION_SETTINGS };
 }
 // Phase F: Apply a preset

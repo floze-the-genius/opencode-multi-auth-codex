@@ -10,9 +10,10 @@ import { createAuthorizationFlow, loginAccount, refreshToken } from './auth.js';
 import { getCodexAuthPath, getCodexAuthStatus, getCodexAuthSummary, resolveAliasForCurrentAuth, syncCodexAuthFile, writeCodexAuthForAlias } from './codex-auth.js';
 import { getStoreStatus, listAccounts, loadStore, removeAccount, updateAccount } from './store.js';
 import { getRefreshQueueState, startRefreshQueue, stopRefreshQueue } from './refresh-queue.js';
-import { getLogPath, logError, logInfo, readLogTail } from './logger.js';
+import { getLogPath, isDebugEnabled, isDebugEnvOverrideActive, logError, logInfo, readLogTail } from './logger.js';
 import { getForceState, activateForce, clearForce, isForceActive, getRemainingForceTimeMs, formatForceDuration } from './force-mode.js';
 import { getSettings, getRuntimeSettings, isFeatureEnabled } from './settings.js';
+import { listSessions, sessionCountByAlias, clearSession, clearSessionsForAlias } from './session-store.js';
 import { Errors } from './errors.js';
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 3434;
@@ -635,6 +636,22 @@ const HTML = `<!doctype html>
         overflow: auto;
         white-space: pre-wrap;
       }
+      .log-entry-collapsible {
+        display: block;
+        margin: 2px 0;
+      }
+      .log-entry-collapsible summary {
+        cursor: pointer;
+        color: #9fb4d0;
+        outline: none;
+      }
+      .log-entry-collapsible summary:hover {
+        color: #d6dde8;
+      }
+      .log-entry-full {
+        display: block;
+        margin-top: 4px;
+      }
       .ag-grid {
         display: grid;
         gap: 12px;
@@ -780,6 +797,63 @@ const HTML = `<!doctype html>
         font-family: inherit;
         font-size: 13px;
       }
+      #useUpOrderSection {
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+      }
+      #useUpOrderSection .use-up-header {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+      .use-up-list {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 10px 0;
+      }
+      .use-up-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        margin-bottom: 4px;
+        background: var(--panel-2);
+      }
+      .use-up-position {
+        font-size: 11px;
+        color: var(--muted);
+        width: 18px;
+        text-align: right;
+        flex-shrink: 0;
+      }
+      .use-up-alias {
+        flex: 1;
+        font-family: monospace;
+        font-size: 13px;
+      }
+      .use-up-move {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        cursor: pointer;
+        padding: 2px 7px;
+        font-size: 12px;
+        color: var(--text);
+        line-height: 1.4;
+        width: auto;
+      }
+      .use-up-move:disabled {
+        opacity: 0.25;
+        cursor: default;
+      }
+      .use-up-save {
+        font-size: 12px;
+        padding: 5px 14px;
+        width: auto;
+      }
       @media (max-width: 720px) {
         header { padding: 26px 18px 10px; }
         .header-bar { flex-direction: column; align-items: stretch; }
@@ -870,13 +944,29 @@ const HTML = `<!doctype html>
                 <option value="least-used" title="Prefer the enabled account with the lowest usage count.">least-used</option>
                 <option value="random" title="Randomly pick from healthy accounts each request.">random</option>
                 <option value="weighted-round-robin" title="Split requests by your account weights (example: 0.70/0.20/0.10 sends about 70%/20%/10%). Limited or disabled accounts are skipped automatically.">weighted-round-robin</option>
+                <option value="use-up" title="Drain each account fully before moving to the next. Configure the drain order below.">use-up</option>
               </select>
               <span id="rotationStrategyHelpIcon" class="strategy-help" title="">?</span>
+            </div>
+            <div class="force-strategy-inline">
+              <label for="sessionStickyFallbackSelect">Session fallback</label>
+              <select id="sessionStickyFallbackSelect" title="">
+                <option value="fail" title="Fail pinned sessions when their account is unavailable. Preserves account-scoped response state.">fail</option>
+                <option value="rotate" title="Move pinned sessions to another healthy account. Improves availability but may break account-scoped response state.">rotate</option>
+              </select>
+              <span id="sessionStickyFallbackHelpIcon" class="strategy-help" title="">?</span>
             </div>
           </div>
         </div>
         <div id="forceStatus" class="notice"></div>
         <div id="rotationStrategyStatus" class="notice"></div>
+        <div id="sessionStickyFallbackStatus" class="notice"></div>
+        <div id="useUpOrderSection" style="display:none;">
+          <div class="use-up-header">Drain order — accounts are exhausted top-to-bottom</div>
+          <ul class="use-up-list" id="useUpOrderList"></ul>
+          <button class="secondary use-up-save" id="saveUseUpOrderBtn">Save order</button>
+          <span class="notice" id="useUpOrderStatus" style="margin-left:10px;"></span>
+        </div>
       </section>
       
       <!-- Phase G: Antigravity section - conditionally rendered based on feature flag -->
@@ -906,8 +996,16 @@ const HTML = `<!doctype html>
             <div style="font-size: 16px; font-weight: 600;">Logs</div>
             <div class="notice" id="logPath"></div>
           </div>
-          <button class="secondary" id="refreshLogsBtn">Refresh logs</button>
+          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:flex-end;">
+            <label class="toggle-switch" id="debugLogToggleLabel" title="">
+              <input type="checkbox" id="debugLogToggle" />
+              <span class="toggle-slider"></span>
+              <span class="toggle-label" id="debugLogToggleText">Off</span>
+            </label>
+            <button class="secondary" id="refreshLogsBtn">Refresh logs</button>
+          </div>
         </div>
+        <div class="notice" id="debugLogStatus"></div>
         <pre class="log-box" id="logBox"></pre>
       </section>
     </div>
@@ -964,6 +1062,10 @@ const HTML = `<!doctype html>
       const logBox = document.getElementById('logBox')
       const refreshLogsBtn = document.getElementById('refreshLogsBtn')
       const logPathEl = document.getElementById('logPath')
+      const debugLogToggle = document.getElementById('debugLogToggle')
+      const debugLogToggleText = document.getElementById('debugLogToggleText')
+      const debugLogToggleLabel = document.getElementById('debugLogToggleLabel')
+      const debugLogStatus = document.getElementById('debugLogStatus')
       const openAccountModalBtn = document.getElementById('openAccountModalBtn')
       const addAliasInput = document.getElementById('addAliasInput')
       const addAccountBtn = document.getElementById('addAccountBtn')
@@ -1003,6 +1105,13 @@ const HTML = `<!doctype html>
       const rotationStrategySelect = document.getElementById('rotationStrategySelect')
       const rotationStrategyStatus = document.getElementById('rotationStrategyStatus')
       const rotationStrategyHelpIcon = document.getElementById('rotationStrategyHelpIcon')
+      const sessionStickyFallbackSelect = document.getElementById('sessionStickyFallbackSelect')
+      const sessionStickyFallbackStatus = document.getElementById('sessionStickyFallbackStatus')
+      const sessionStickyFallbackHelpIcon = document.getElementById('sessionStickyFallbackHelpIcon')
+      const useUpOrderSection = document.getElementById('useUpOrderSection')
+      const useUpOrderList = document.getElementById('useUpOrderList')
+      const useUpOrderStatus = document.getElementById('useUpOrderStatus')
+      const saveUseUpOrderBtn = document.getElementById('saveUseUpOrderBtn')
 
       let latestState = null
       let pollTimer = null
@@ -1013,10 +1122,15 @@ const HTML = `<!doctype html>
         'round-robin': 'Cycle through enabled accounts in order.',
         'least-used': 'Prefer the enabled account with the lowest usage count.',
         'random': 'Randomly pick from healthy accounts each request.',
-        'weighted-round-robin': 'Split requests by your account weights (example: 0.70/0.20/0.10 sends about 70%/20%/10%). Limited or disabled accounts are skipped automatically.'
+        'weighted-round-robin': 'Split requests by your account weights (example: 0.70/0.20/0.10 sends about 70%/20%/10%). Limited or disabled accounts are skipped automatically.',
+        'use-up': 'Drain each account fully before moving to the next. Accounts are used in the order configured below until rate-limited, then the next account takes over.'
       }
       const forceModeHelpText = 'Force mode pins all requests to one selected account for up to 24 hours. While force mode is on, rotation strategy is paused.'
       const forceAliasHelpText = 'Choose the account that force mode should pin.'
+      const sessionStickyFallbackHelp = {
+        fail: 'Pinned sessions fail when their account is unavailable. This preserves account-scoped response state and avoids silently breaking session continuity.',
+        rotate: 'Pinned sessions move to another healthy account when their account is unavailable. This improves availability but may break account-scoped response state.'
+      }
 
       function showToast(text) {
         toast.textContent = text
@@ -1037,6 +1151,66 @@ const HTML = `<!doctype html>
 
       function describeRotationStrategy(strategy) {
         return rotationStrategyHelp[strategy] || 'Rotation strategy controls how the next account is selected.'
+      }
+
+      // --- Use-up order panel ---
+
+      let useUpCurrentOrder = []
+
+      function renderUseUpOrderPanel(strategy, accounts, savedOrder) {
+        if (!useUpOrderSection) return
+        if (strategy !== 'use-up') {
+          useUpOrderSection.style.display = 'none'
+          return
+        }
+        useUpOrderSection.style.display = 'block'
+
+        // Build ordered list: saved aliases first (filtered to existing), then any remaining
+        const allAliases = (accounts || []).map(a => a.alias)
+        const ordered = [
+          ...savedOrder.filter(a => allAliases.includes(a)),
+          ...allAliases.filter(a => !savedOrder.includes(a))
+        ]
+        useUpCurrentOrder = [...ordered]
+
+        if (!useUpOrderList) return
+        useUpOrderList.innerHTML = ordered.map(function(alias, i) {
+          return '<li class="use-up-row" data-alias="' + escapeHtml(alias) + '">' +
+            '<span class="use-up-position">' + (i + 1) + '.</span>' +
+            '<span class="use-up-alias">' + escapeHtml(alias) + '</span>' +
+            '<button class="use-up-move" data-dir="up" data-index="' + i + '"' + (i === 0 ? ' disabled' : '') + ' title="Move up">↑</button>' +
+            '<button class="use-up-move" data-dir="down" data-index="' + i + '"' + (i === ordered.length - 1 ? ' disabled' : '') + ' title="Move down">↓</button>' +
+            '</li>'
+        }).join('')
+
+        useUpOrderList.querySelectorAll('.use-up-move').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const dir = btn.getAttribute('data-dir')
+            const idx = parseInt(btn.getAttribute('data-index'), 10)
+            const swapIdx = dir === 'up' ? idx - 1 : idx + 1
+            if (swapIdx < 0 || swapIdx >= useUpCurrentOrder.length) return
+            ;[useUpCurrentOrder[idx], useUpCurrentOrder[swapIdx]] = [useUpCurrentOrder[swapIdx], useUpCurrentOrder[idx]]
+            renderUseUpOrderPanel(strategy, accounts, useUpCurrentOrder)
+          })
+        })
+        if (useUpOrderStatus) useUpOrderStatus.textContent = ''
+      }
+
+      async function saveUseUpOrder() {
+        if (!saveUseUpOrderBtn || !useUpOrderStatus) return
+        saveUseUpOrderBtn.disabled = true
+        try {
+          await api('/api/settings', {
+            method: 'PUT',
+            body: JSON.stringify({ useUpOrder: useUpCurrentOrder, actor: 'dashboard' })
+          })
+          if (useUpOrderStatus) useUpOrderStatus.textContent = 'Saved.'
+          setTimeout(() => { if (useUpOrderStatus) useUpOrderStatus.textContent = '' }, 2000)
+        } catch (err) {
+          if (useUpOrderStatus) useUpOrderStatus.textContent = 'Error: ' + err.message
+        } finally {
+          saveUseUpOrderBtn.disabled = false
+        }
       }
 
       function renderControlHelp(strategy) {
@@ -1072,6 +1246,24 @@ const HTML = `<!doctype html>
         }
         if (rotationStrategyStatus) {
           rotationStrategyStatus.textContent = 'Rotation strategy: ' + strategy + ' — ' + description + forceNotice
+        }
+        // Show/hide use-up order panel based on strategy
+        renderUseUpOrderPanel(strategy, latestState?.accounts, latestState?.useUpOrder ?? [])
+      }
+
+      function renderSessionStickyFallback(value) {
+        const fallback = value === 'rotate' ? 'rotate' : 'fail'
+        const description = sessionStickyFallbackHelp[fallback]
+        if (sessionStickyFallbackSelect) {
+          sessionStickyFallbackSelect.value = fallback
+          sessionStickyFallbackSelect.title = description
+          sessionStickyFallbackSelect.disabled = false
+        }
+        if (sessionStickyFallbackHelpIcon) {
+          sessionStickyFallbackHelpIcon.title = description
+        }
+        if (sessionStickyFallbackStatus) {
+          sessionStickyFallbackStatus.textContent = 'Session fallback: ' + fallback + ' — ' + description
         }
       }
 
@@ -1119,6 +1311,18 @@ const HTML = `<!doctype html>
           .replace(/>/g, '&gt;')
           .replace(/"/g, '&quot;')
           .replace(/'/g, '&#39;')
+      }
+
+      function renderLogLine(line) {
+        const text = String(line || '')
+        const collapseAt = 500
+        const previewLength = 220
+        if (text.length <= collapseAt) return escapeHtml(text)
+        const preview = text.slice(0, previewLength).trimEnd()
+        return '<details class="log-entry-collapsible">' +
+          '<summary>' + escapeHtml(preview) + '... (' + text.length + ' chars, click to expand)</summary>' +
+          '<span class="log-entry-full">' + escapeHtml(text) + '</span>' +
+          '</details>'
       }
 
       function remainingPercent(window) {
@@ -1419,6 +1623,26 @@ const HTML = `<!doctype html>
           </div>
         \`
         notice.textContent = state.lastSyncError || storeStatus.error || ''
+      }
+
+      function renderDebugLogging(state) {
+        if (!debugLogToggle || !debugLogToggleText) return
+        const enabled = Boolean(state.debugEnabled)
+        const persisted = Boolean(state.debugPersisted)
+        const envOverride = Boolean(state.debugEnvOverride)
+        debugLogToggle.checked = enabled
+        debugLogToggle.disabled = envOverride
+        debugLogToggleText.textContent = enabled ? (envOverride ? 'On (env)' : 'On') : 'Off'
+        if (debugLogToggleLabel) {
+          debugLogToggleLabel.title = envOverride
+            ? 'Debug logging is forced on by OPENCODE_MULTI_AUTH_DEBUG'
+            : 'Toggle per-request debug logging'
+        }
+        if (debugLogStatus) {
+          debugLogStatus.textContent = envOverride
+            ? 'Debug logging is forced on by OPENCODE_MULTI_AUTH_DEBUG.'
+            : (persisted ? 'Debug logging is enabled.' : 'Debug logging is disabled.')
+        }
       }
 
       function renderLogin(state) {
@@ -1729,13 +1953,15 @@ const HTML = `<!doctype html>
       async function refreshLogs() {
         const logs = await api('/api/logs')
         logPathEl.textContent = logs.path ? \`Path: \${logs.path}\` : ''
-        logBox.textContent = (logs.lines || []).join('\\n') || 'No logs yet.'
+        const lines = logs.lines || []
+        logBox.innerHTML = lines.length ? lines.map(renderLogLine).join('\\n') : 'No logs yet.'
       }
 
       async function refreshState() {
         const state = await api('/api/state')
         latestState = state
         renderMeta(state)
+        renderDebugLogging(state)
         renderQueue(state)
         renderAccounts(state)
         renderLogin(state)
@@ -2159,6 +2385,8 @@ const HTML = `<!doctype html>
             rotationStrategySelect.disabled = false
             renderRotationStrategyHelp(strategy)
           }
+
+          renderSessionStickyFallback(latestState?.sessionStickyFallback || 'fail')
         } catch (err) {
           console.error('Failed to load force state:', err)
           if (forceStatus) {
@@ -2166,6 +2394,9 @@ const HTML = `<!doctype html>
           }
           if (rotationStrategyStatus) {
             rotationStrategyStatus.textContent = 'Failed to load strategy'
+          }
+          if (sessionStickyFallbackStatus) {
+            sessionStickyFallbackStatus.textContent = 'Failed to load session fallback setting'
           }
         }
       }
@@ -2247,6 +2478,59 @@ const HTML = `<!doctype html>
             rotationStrategySelect.disabled = false
           }
         })
+      }
+
+      if (sessionStickyFallbackSelect) {
+        sessionStickyFallbackSelect.addEventListener('change', async () => {
+          const previous = latestState?.sessionStickyFallback || 'fail'
+          const sessionStickyFallback = sessionStickyFallbackSelect.value === 'rotate' ? 'rotate' : 'fail'
+          renderSessionStickyFallback(sessionStickyFallback)
+          sessionStickyFallbackSelect.disabled = true
+          try {
+            await api('/api/settings', {
+              method: 'PUT',
+              body: JSON.stringify({
+                sessionStickyFallback,
+                actor: 'dashboard'
+              })
+            })
+            showToast('Session fallback set to ' + sessionStickyFallback)
+            await refreshState()
+          } catch (err) {
+            renderSessionStickyFallback(previous)
+            showToast('Error: ' + err.message)
+          } finally {
+            sessionStickyFallbackSelect.disabled = false
+          }
+        })
+      }
+
+      if (debugLogToggle) {
+        debugLogToggle.addEventListener('change', async () => {
+          const nextValue = debugLogToggle.checked
+          const previous = Boolean(latestState?.debugEnabled)
+          debugLogToggle.disabled = true
+          try {
+            await api('/api/settings', {
+              method: 'PUT',
+              body: JSON.stringify({
+                debug: nextValue,
+                actor: 'dashboard'
+              })
+            })
+            showToast('Debug logging ' + (nextValue ? 'enabled' : 'disabled'))
+            await refreshState()
+          } catch (err) {
+            debugLogToggle.checked = previous
+            showToast('Error: ' + err.message)
+          } finally {
+            debugLogToggle.disabled = Boolean(latestState?.debugEnvOverride)
+          }
+        })
+      }
+
+      if (saveUseUpOrderBtn) {
+        saveUseUpOrderBtn.addEventListener('click', () => saveUseUpOrder())
       }
 
       renderControlHelp('round-robin')
@@ -3111,6 +3395,7 @@ export function startWebConsole(options) {
                 const runtimeSettings = getRuntimeSettings();
                 const antigravityEnabled = settings.settings.featureFlags?.antigravityEnabled ?? false;
                 const antigravity = antigravityEnabled ? loadAntigravityAccounts() : { accounts: [], path: ANTIGRAVITY_ACCOUNTS_FILE };
+                const debugEnabled = isDebugEnabled();
                 const forceState = getForceState();
                 const forceActive = isForceActive();
                 const autoLogin = loadAutoLoginConfig();
@@ -3132,7 +3417,12 @@ export function startWebConsole(options) {
                     recommendedAlias: recommendAlias(rawAccounts),
                     logPath: getLogPath(),
                     autoLogin,
+                    debugEnabled,
+                    debugPersisted: settings.settings.debug ?? false,
+                    debugEnvOverride: isDebugEnvOverrideActive(),
                     rotationStrategy: runtimeSettings.settings.rotationStrategy,
+                    sessionStickyFallback: runtimeSettings.settings.sessionStickyFallback,
+                    useUpOrder: runtimeSettings.settings.useUpOrder ?? [],
                     force: {
                         active: forceActive,
                         alias: forceState.forcedAlias,
@@ -3142,8 +3432,36 @@ export function startWebConsole(options) {
                         remainingTime: formatForceDuration(getRemainingForceTimeMs())
                     },
                     // Phase G: Include feature flags in state
-                    featureFlags: settings.settings.featureFlags || { antigravityEnabled: false }
+                    featureFlags: settings.settings.featureFlags || { antigravityEnabled: false },
+                    sessions: {
+                        count: listSessions().length,
+                        byAlias: sessionCountByAlias()
+                    }
                 });
+                return;
+            }
+            if (req.method === 'GET' && path === '/api/sessions') {
+                sendJson(res, 200, { sessions: listSessions() });
+                return;
+            }
+            if (req.method === 'DELETE' && path.startsWith('/api/sessions/')) {
+                const sessionId = decodeURIComponent(path.slice('/api/sessions/'.length));
+                if (!sessionId) {
+                    sendJson(res, 400, { error: 'Missing session ID' });
+                    return;
+                }
+                clearSession(sessionId);
+                sendJson(res, 200, { ok: true });
+                return;
+            }
+            if (req.method === 'DELETE' && path.startsWith('/api/accounts/') && path.endsWith('/sessions')) {
+                const alias = decodeURIComponent(path.slice('/api/accounts/'.length, -'/sessions'.length));
+                if (!alias) {
+                    sendJson(res, 400, { error: 'Missing alias' });
+                    return;
+                }
+                clearSessionsForAlias(alias);
+                sendJson(res, 200, { ok: true });
                 return;
             }
             if (req.method === 'GET' && path === '/api/logs') {
@@ -3579,6 +3897,9 @@ export function startWebConsole(options) {
                 if (body.rotationStrategy) {
                     updates.rotationStrategy = body.rotationStrategy;
                 }
+                if (typeof body.debug === 'boolean') {
+                    updates.debug = body.debug;
+                }
                 if (typeof body.criticalThreshold === 'number') {
                     updates.criticalThreshold = body.criticalThreshold;
                 }
@@ -3587,6 +3908,12 @@ export function startWebConsole(options) {
                 }
                 if (body.accountWeights) {
                     updates.accountWeights = body.accountWeights;
+                }
+                if (Array.isArray(body.useUpOrder)) {
+                    updates.useUpOrder = body.useUpOrder.filter((v) => typeof v === 'string');
+                }
+                if (body.sessionStickyFallback === 'fail' || body.sessionStickyFallback === 'rotate') {
+                    updates.sessionStickyFallback = body.sessionStickyFallback;
                 }
                 // Phase G: Handle feature flags
                 if (body.featureFlags && typeof body.featureFlags === 'object') {

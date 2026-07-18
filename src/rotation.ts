@@ -1,9 +1,16 @@
-import { getStoreDiagnostics, loadStore, saveStore, updateAccount } from './store.js'
+import { getStoreDiagnostics, loadStore, mutateStore, updateAccount } from './store.js'
 import { ensureValidToken } from './auth.js'
 import { decodeJwtPayload, getPlanTypeFromClaims } from './codex-auth.js'
 import { isForceActive, checkAndAutoClearForce, getForceState, clearForce } from './force-mode.js'
 import { getRuntimeSettings, calculateWeightedSelection } from './settings.js'
+import {
+  getSessionAlias,
+  setSessionAlias,
+  clearSession,
+  clearSessionsForAlias
+} from './session-store.js'
 import type { AccountCredentials, DEFAULT_CONFIG } from './types.js'
+import { logDebug } from './logger.js'
 
 export interface RotationResult {
   account: AccountCredentials
@@ -17,6 +24,9 @@ export interface RotationResult {
 
 export interface AccountSelectionContext {
   model?: string
+  /** Stable identifier for this conversation. When set and stickySessionRouting
+   *  is enabled the same account is reused for all turns. */
+  sessionId?: string
 }
 
 const HEALTH_HYSTERESIS_MS = 10_000
@@ -138,7 +148,7 @@ export async function getNextAccount(
   // Phase E: Check and auto-clear expired/invalid force state
   const autoClear = checkAndAutoClearForce()
   if (autoClear.wasCleared) {
-    console.log(`[multi-auth] Force mode auto-cleared: ${autoClear.reason}`)
+    logDebug(`[multi-auth] Force mode auto-cleared: ${autoClear.reason}`)
   }
   
   // Phase E: Check if force mode is active
@@ -154,9 +164,7 @@ export async function getNextAccount(
     console.error(
       `[multi-auth] No accounts configured. Run: opencode-multi-auth add <alias>${extra}`
     )
-    if (process.env.OPENCODE_MULTI_AUTH_DEBUG === '1') {
-      console.error(`[multi-auth] store file: ${diag.storeFile}`)
-    }
+    logDebug(`[multi-auth] store file: ${diag.storeFile}`)
     return null
   }
 
@@ -173,15 +181,22 @@ export async function getNextAccount(
       if (health.isHealthy) {
         const token = await ensureValidToken(forcedAlias)
         if (token) {
-          store = updateAccount(forcedAlias, {
-            usageCount: (forcedAccount.usageCount || 0) + 1,
-            lastUsed: now,
-            limitError: undefined
+          const updated = mutateStore((currentStore) => {
+            const current = currentStore.accounts[forcedAlias]
+            if (!current) return null
+            currentStore.accounts[forcedAlias] = {
+              ...current,
+              usageCount: (current.usageCount || 0) + 1,
+              lastUsed: now,
+              limitError: undefined
+            }
+            currentStore.activeAlias = forcedAlias
+            currentStore.lastRotation = now
+            return currentStore
           })
-          
-          store.activeAlias = forcedAlias
-          store.lastRotation = now
-          saveStore(store)
+
+          if (!updated) return null
+          store = updated
           
           console.log(`[multi-auth] Force mode: using ${forcedAlias}`)
           return {
@@ -208,6 +223,83 @@ export async function getNextAccount(
     }
   }
   
+  // --- Sticky session routing ---
+  const runtimeSettingsForSession = getRuntimeSettings()
+  const sessionSettings = runtimeSettingsForSession.settings
+  const sessionId = selection?.sessionId
+
+  if (
+    sessionId &&
+    (sessionSettings.stickySessionRouting ?? true)
+  ) {
+    const idleTimeoutMs = sessionSettings.sessionIdleTimeoutMs ?? 60 * 60 * 1000
+    const pinnedAlias = getSessionAlias(sessionId)
+
+    if (pinnedAlias) {
+      const pinnedAccount = store.accounts[pinnedAlias]
+
+      if (pinnedAccount) {
+        const pinnedHealth = evaluateAccountHealth(pinnedAccount, now)
+
+        if (pinnedHealth.isHealthy) {
+          const token = await ensureValidToken(pinnedAlias)
+          if (token) {
+            const updated = mutateStore((currentStore) => {
+              const current = currentStore.accounts[pinnedAlias]
+              if (!current) return null
+              currentStore.accounts[pinnedAlias] = {
+                ...current,
+                usageCount: (current.usageCount || 0) + 1,
+                lastUsed: now,
+                limitError: undefined
+              }
+              currentStore.activeAlias = pinnedAlias
+              currentStore.lastRotation = now
+              return currentStore
+            })
+
+            if (!updated) return null
+            store = updated
+            setSessionAlias(sessionId, pinnedAlias, idleTimeoutMs)
+
+            logDebug(`[multi-auth] Session ${sessionId}: reusing pinned account ${pinnedAlias}`)
+
+            const currentForceState = getForceState()
+            return {
+              account: store.accounts[pinnedAlias],
+              token,
+              forceState: {
+                active: isForceActive(),
+                alias: currentForceState.forcedAlias,
+                remainingMs: currentForceState.forcedUntil ? currentForceState.forcedUntil - now : 0
+              }
+            }
+          }
+        }
+
+        // Pinned account is unhealthy.
+        const fallback = sessionSettings.sessionStickyFallback ?? 'fail'
+        if (fallback === 'fail') {
+          console.warn(
+            `[multi-auth] Session ${sessionId}: pinned account ${pinnedAlias} is unavailable and sessionStickyFallback=fail`
+          )
+          return null
+        }
+
+        // fallback === 'rotate': evict the mapping and fall through to normal rotation.
+        console.warn(
+          `[multi-auth] Session ${sessionId}: pinned account ${pinnedAlias} unavailable; falling back to rotation`
+        )
+        clearSession(sessionId)
+      } else {
+        // Account was deleted; clean up stale mapping.
+        clearSession(sessionId)
+      }
+    }
+    // No existing mapping → fall through; after selection we'll record one.
+  }
+  // --- End sticky session routing ---
+
   const healthMap = new Map<string, AccountHealth>()
   for (const alias of aliases) {
     const acc = store.accounts[alias]
@@ -307,6 +399,23 @@ export async function getNextAccount(
         
         return { aliases: [selected] }
       }
+      case 'use-up': {
+        // Always use the lowest-indexed available account by drain order.
+        // Once an account is exhausted (rate-limited) it drops out of
+        // candidateAliases, and the next one in order takes over.
+        const explicit = runtimeSettings.settings.useUpOrder ?? []
+        const storeOrder = Object.keys(store.accounts)
+        const sorted = [...candidateAliases].sort((a, b) => {
+          let ia = explicit.indexOf(a)
+          let ib = explicit.indexOf(b)
+          // Aliases not in the explicit list are appended after it,
+          // ordered by store insertion order.
+          if (ia === -1) ia = explicit.length + storeOrder.indexOf(a)
+          if (ib === -1) ib = explicit.length + storeOrder.indexOf(b)
+          return ia - ib
+        })
+        return { aliases: sorted }
+      }
       case 'round-robin':
       default: {
         const sorted = [...candidateAliases].sort((a, b) => {
@@ -344,19 +453,37 @@ export async function getNextAccount(
       continue
     }
 
-    store = updateAccount(candidate, {
-      usageCount: (store.accounts[candidate]?.usageCount || 0) + 1,
-      lastUsed: now,
-      limitError: undefined
+    const nextIndex = primary.aliases.includes(candidate) ? primary.nextIndex : fallback.nextIndex
+    const updated = mutateStore((currentStore) => {
+      const current = currentStore.accounts[candidate]
+      if (!current) return null
+      currentStore.accounts[candidate] = {
+        ...current,
+        usageCount: (current.usageCount || 0) + 1,
+        lastUsed: now,
+        limitError: undefined
+      }
+
+      currentStore.activeAlias = candidate
+      currentStore.lastRotation = now
+      if (nextIndex) {
+        currentStore.rotationIndex = nextIndex(candidate)
+      }
+      return currentStore
     })
 
-    store.activeAlias = candidate
-    store.lastRotation = now
-    const nextIndex = primary.aliases.includes(candidate) ? primary.nextIndex : fallback.nextIndex
-    if (nextIndex) {
-      store.rotationIndex = nextIndex(candidate)
+    if (!updated) {
+      continue
     }
-    saveStore(store)
+
+    store = updated
+    
+    // Record session→account mapping for subsequent turns.
+    if (sessionId && (sessionSettings.stickySessionRouting ?? true)) {
+      const idleTimeoutMs = sessionSettings.sessionIdleTimeoutMs ?? 60 * 60 * 1000
+      setSessionAlias(sessionId, candidate, idleTimeoutMs)
+      logDebug(`[multi-auth] Session ${sessionId}: pinned to account ${candidate}`)
+    }
 
     const currentForceState = getForceState()
     return {
@@ -453,3 +580,6 @@ export function clearAuthInvalid(alias: string): void {
     authInvalidatedAt: undefined
   })
 }
+
+export { clearSessionsForAlias } from './session-store.js'
+export { listSessions, sessionCount, sessionCountByAlias, pruneExpired } from './session-store.js'
