@@ -4,9 +4,9 @@ Open-source account routing and reliability tooling for OpenCode's Codex OAuth
 integration. It provides local session controls, a localhost dashboard,
 configurable routing, limit visibility, and failure recovery.
 
-[![npm version](https://img.shields.io/npm/v/@guard22/opencode-multi-auth-codex)](https://www.npmjs.com/package/@guard22/opencode-multi-auth-codex)
-[![license](https://img.shields.io/github/license/floze-the-genius/opencode-multi-auth-codex)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/floze-the-genius/opencode-multi-auth-codex)](https://github.com/floze-the-genius/opencode-multi-auth-codex/stargazers)
+[![npm version](https://img.shields.io/npm/v/@nguyenthdat/opencode-multi-auth-codex)](https://www.npmjs.com/package/@nguyenthdat/opencode-multi-auth-codex)
+[![license](https://img.shields.io/github/license/nguyenthdat/opencode-multi-auth-codex)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/nguyenthdat/opencode-multi-auth-codex)](https://github.com/nguyenthdat/opencode-multi-auth-codex/stargazers)
 
 <img width="1659" height="888" alt="image" src="https://github.com/user-attachments/assets/c72b4d04-be1b-4222-9094-454c2105336f" />
 
@@ -76,8 +76,7 @@ configurable routing, limit visibility, and failure recovery.
 
 ## Requirements
 
-- Node.js 20+
-- npm
+- Bun 1.3+
 - OpenCode CLI
 - ChatGPT/Codex OAuth accounts
 
@@ -118,9 +117,11 @@ opencode plugin github:nguyenthdat/opencode-multi-auth-codex --global
 ```
 
 OpenCode support:
-- GPT-5.6 may appear in Codex before OpenCode ships built-in model metadata
-- the plugin backfills `gpt-5.6` and `gpt-5.6-fast` into runtime config by default
-- OpenCode builds that validate model IDs before plugin config is applied may still reject direct `openai/gpt-5.6` selection
+- the plugin backfills `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`
+- reasoning levels are OpenCode variants on each base model, not separate model IDs
+- each GPT-5.6 family model exposes `none`, `low`, `medium`, `high`, `xhigh`, `max`, and `fast`
+- `max` maps to OpenAI's strongest supported request effort, `xhigh`
+- OpenCode builds that validate model IDs before plugin config is applied may still reject a direct GPT-5.6 family selection
 - in that case, keep selecting a previous accepted model such as `openai/gpt-5.5` or `openai/gpt-5.4` and enable latest-model mapping:
 
 ```bash
@@ -135,18 +136,18 @@ export OPENCODE_MULTI_AUTH_INJECT_MODELS=0
 ```
 
 Update existing installs:
-- npm install: rerun `opencode plugin @guard22/opencode-multi-auth-codex@latest --global`
-- GitHub install: rerun `opencode plugin github:floze-the-genius/opencode-multi-auth-codex --global`
+- package install: rerun `opencode plugin @nguyenthdat/opencode-multi-auth-codex@latest --global`
+- GitHub install: rerun `opencode plugin github:nguyenthdat/opencode-multi-auth-codex --global`
 - restart OpenCode after updating the plugin
 - if your install is pinned to a specific tag/commit, bump it explicitly before testing new models
 
 ### From source
 
 ```bash
-git clone https://github.com/floze-the-genius/opencode-multi-auth-codex.git
+git clone https://github.com/nguyenthdat/opencode-multi-auth-codex.git
 cd opencode-multi-auth-codex
-npm ci
-npm run build
+bun install --frozen-lockfile
+bun run build
 ```
 
 ### Quick start
@@ -345,42 +346,32 @@ Default behavior:
 
 Environment variables:
 - `OPENCODE_MULTI_AUTH_PREFER_CODEX_LATEST=1` enables mapping to the latest backend model
-- `OPENCODE_MULTI_AUTH_CODEX_LATEST_MODEL=gpt-5.5` overrides the mapping target, for example to roll back from the default `gpt-5.6`
+- `OPENCODE_MULTI_AUTH_CODEX_LATEST_MODEL=gpt-5.5` overrides the mapping target, for example to roll back from the default `gpt-5.6-sol`
 - `OPENCODE_MULTI_AUTH_DEBUG=1` prints model mapping debug logs
 - `OPENCODE_MULTI_AUTH_INJECT_MODELS=0` disables automatic runtime model backfill
 
 ## Fast Mode
 
-For OpenCode builds that already accept `gpt-5.6` model IDs, the clean way to mirror Codex Fast mode is:
+For OpenCode builds that accept GPT-5.6 family IDs, select a base model such as `openai/gpt-5.6-sol`, then choose its `fast` variant.
 
-- keep the model as `openai/gpt-5.6`
-- use a model variant such as `fast`
-- set `serviceTier=priority` in the variant config
+- the backend model stays `gpt-5.6-sol`
+- the injected `fast` variant sets `serviceTier=priority`
+- reasoning variants stay under the same base model
 
-Behavior:
-- the backend model stays `gpt-5.6`
-- the plugin forwards the request with `service_tier=priority`
-- the plugin does not automatically lower reasoning or verbosity
-
-Recommended OpenCode config:
+Equivalent OpenCode model configuration:
 
 ```json
 {
   "provider": {
     "openai": {
       "models": {
-        "gpt-5.6": {
+        "gpt-5.6-sol": {
           "variants": {
-            "Medium Fast": {
+            "max": {
+              "reasoningEffort": "xhigh"
+            },
+            "fast": {
               "reasoningEffort": "medium",
-              "serviceTier": "priority"
-            },
-            "High Fast": {
-              "reasoningEffort": "high",
-              "serviceTier": "priority"
-            },
-            "XHigh Fast": {
-              "reasoningEffort": "xhigh",
               "serviceTier": "priority"
             }
           }
@@ -391,7 +382,7 @@ Recommended OpenCode config:
 }
 ```
 
-For OpenCode builds that still reject `openai/gpt-5.6`, keep selecting `openai/gpt-5.5` or `openai/gpt-5.4`, keep your existing Fast variant, and set `OPENCODE_MULTI_AUTH_PREFER_CODEX_LATEST=1`. The plugin will send `gpt-5.6` to the Codex backend while preserving `service_tier=priority`.
+For OpenCode builds that still reject GPT-5.6 family IDs, keep selecting `openai/gpt-5.5` or `openai/gpt-5.4` and set `OPENCODE_MULTI_AUTH_PREFER_CODEX_LATEST=1`. The plugin will send `gpt-5.6-sol` to the Codex backend.
 
 See [docs/gpt-5.4-fast-benchmark.md](./docs/gpt-5.4-fast-benchmark.md) for a continued-session benchmark summary.
 
@@ -419,18 +410,17 @@ See [docs/gpt-5.4-fast-benchmark.md](./docs/gpt-5.4-fast-benchmark.md) for a con
 ## Build and test
 
 ```bash
-npm ci
-npm run lint
-npm run build
-npx tsc --noEmit
+bun install --frozen-lockfile
+bun run lint
+bun run build
 
-npm run test:unit
-npm run test:integration
-npm run test:web:headless
-npm run test:failure
-npm run test:stress
-npm run test:sandbox
-npm run test:soak:48h
+bun run test:unit
+bun run test:integration
+bun run test:web:headless
+bun run test:failure
+bun run test:stress
+bun run test:sandbox
+bun run test:soak:48h
 ```
 
 Current test script surfaces are scaffolded and active. For true long soak, set a long duration and keep the run alive.
@@ -450,7 +440,7 @@ Use `codextesting.md` for the Codex CLI live-testing checklist and copy-paste co
 ## Development notes
 
 - Edit `src/*`, never hand-edit `dist/*`.
-- Run `npm run build` after source changes.
+- Run `bun run build` after source changes.
 - Keep manual/live tests sandboxed (temp HOME/store/auth paths).
 
 ## Release flow
@@ -459,17 +449,17 @@ Use `codextesting.md` for the Codex CLI live-testing checklist and copy-paste co
 - Prepare the next release by bumping the package version, rebuilding, and publishing:
 
 ```bash
-npm version 1.2.1 --no-git-tag-version
-npm install
-npm run build
-npm publish --access public
+bun pm pkg set version=1.5.1
+bun install --lockfile-only
+bun run build
+bun publish --access public
 ```
 
 - After that, cut the git release from `main`:
 
 ```bash
-git commit -m "chore: release v1.2.1"
-git tag v1.2.1
+git commit -m "chore: release v1.5.1"
+git tag v1.5.1
 git push origin main --follow-tags
 ```
 
@@ -477,7 +467,7 @@ git push origin main --follow-tags
 
 ```json
 {
-  "plugin": ["npm:@guard22/opencode-multi-auth-codex@1.2.1"]
+  "plugin": ["npm:@nguyenthdat/opencode-multi-auth-codex@1.5.1"]
 }
 ```
 

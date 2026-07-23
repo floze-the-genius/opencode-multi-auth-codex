@@ -5,10 +5,19 @@ import { probeRateLimitsForAccount } from './probe-limits.js';
 import { logError, logInfo } from './logger.js';
 import { DEFAULT_CONFIG, calculateLimitsConfidence } from './types.js';
 import { fetchUsageRateLimitsForAccount } from './usage-limits.js';
-export async function refreshRateLimitsForAccount(account) {
-    updateAccount(account.alias, { limitStatus: 'running', limitError: undefined });
-    logInfo(`Refreshing limits for ${account.alias}`);
-    const usage = await fetchUsageRateLimitsForAccount(account);
+const DEFAULT_LIMIT_REFRESH_DEPENDENCIES = {
+    updateAccount,
+    logError,
+    logInfo,
+    fetchUsageRateLimitsForAccount,
+    probeRateLimitsForAccount,
+    markAuthInvalid,
+    markWorkspaceDeactivated
+};
+export async function refreshRateLimitsForAccount(account, dependencies = DEFAULT_LIMIT_REFRESH_DEPENDENCIES) {
+    dependencies.updateAccount(account.alias, { limitStatus: 'running', limitError: undefined });
+    dependencies.logInfo(`Refreshing limits for ${account.alias}`);
+    const usage = await dependencies.fetchUsageRateLimitsForAccount(account);
     if (usage.rateLimits) {
         const now = Date.now();
         const updates = {
@@ -26,39 +35,39 @@ export async function refreshRateLimitsForAccount(account) {
         if (typeof usage.rateLimitedUntil === 'number' && usage.rateLimitedUntil > now) {
             updates.rateLimitedUntil = usage.rateLimitedUntil;
         }
-        updateAccount(account.alias, updates);
-        logInfo(`Limits refreshed for ${account.alias} via usage API`);
+        dependencies.updateAccount(account.alias, updates);
+        dependencies.logInfo(`Limits refreshed for ${account.alias} via usage API`);
         return { alias: account.alias, updated: true };
     }
     if (usage.error) {
         if (usage.shouldProbeFallback === false) {
             const now = Date.now();
             if (usage.authInvalid) {
-                markAuthInvalid(account.alias);
+                dependencies.markAuthInvalid(account.alias);
             }
             if (usage.workspaceDeactivated) {
-                markWorkspaceDeactivated(account.alias, DEFAULT_CONFIG.workspaceDeactivatedCooldownMs, { error: usage.workspaceDeactivatedReason || usage.error });
+                dependencies.markWorkspaceDeactivated(account.alias, DEFAULT_CONFIG.workspaceDeactivatedCooldownMs, { error: usage.workspaceDeactivatedReason || usage.error });
             }
-            updateAccount(account.alias, {
+            dependencies.updateAccount(account.alias, {
                 limitStatus: 'error',
                 limitError: usage.error,
                 lastLimitErrorAt: now,
                 limitsConfidence: calculateLimitsConfidence(account.lastLimitProbeAt, now, 'error')
             });
-            logInfo(`Skipping limits probe for ${account.alias}: ${usage.error}`);
+            dependencies.logInfo(`Skipping limits probe for ${account.alias}: ${usage.error}`);
             return {
                 alias: account.alias,
                 updated: false,
                 error: usage.error
             };
         }
-        logInfo(`Usage API limits lookup failed for ${account.alias}, falling back to probe: ${usage.error}`);
+        dependencies.logInfo(`Usage API limits lookup failed for ${account.alias}, falling back to probe: ${usage.error}`);
     }
-    const probe = await probeRateLimitsForAccount(account);
+    const probe = await dependencies.probeRateLimitsForAccount(account);
     if (!probe.isAuthoritative || !probe.rateLimits) {
         const now = Date.now();
         const errorText = usage.error || probe.error || 'Probe failed';
-        logError(`Limit refresh failed for ${account.alias}: ${errorText}`);
+        dependencies.logError(`Limit refresh failed for ${account.alias}: ${errorText}`);
         const likelyRateLimit = isRateLimitErrorText(errorText);
         const parsedResetAt = parseRateLimitResetFromError(errorText, now);
         const fallbackResetAt = likelyRateLimit
@@ -76,7 +85,7 @@ export async function refreshRateLimitsForAccount(account) {
         if (typeof rateLimitedUntil === 'number' && rateLimitedUntil > now) {
             updates.rateLimitedUntil = rateLimitedUntil;
         }
-        updateAccount(account.alias, updates);
+        dependencies.updateAccount(account.alias, updates);
         return {
             alias: account.alias,
             updated: false,
@@ -86,7 +95,7 @@ export async function refreshRateLimitsForAccount(account) {
     const now = Date.now();
     const mergedRateLimits = mergeRateLimits(account.rateLimits, probe.rateLimits);
     const blockingResetAt = getBlockingRateLimitResetAt(mergedRateLimits, now);
-    updateAccount(account.alias, {
+    dependencies.updateAccount(account.alias, {
         rateLimits: mergedRateLimits,
         limitStatus: 'success',
         limitError: undefined,
@@ -96,7 +105,7 @@ export async function refreshRateLimitsForAccount(account) {
         authInvalid: false,
         authInvalidatedAt: undefined
     });
-    logInfo(`Limits refreshed for ${account.alias} using model ${probe.probeModel || 'unknown'}, effort ${probe.probeEffort || 'default'}`);
+    dependencies.logInfo(`Limits refreshed for ${account.alias} using model ${probe.probeModel || 'unknown'}, effort ${probe.probeEffort || 'default'}`);
     return { alias: account.alias, updated: true };
 }
 export async function refreshRateLimits(accounts, alias) {

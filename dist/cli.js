@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { fileURLToPath } from 'node:url';
 import { loginAccount } from './auth.js';
 import { removeAccount, listAccounts, getStorePath, loadStore } from './store.js';

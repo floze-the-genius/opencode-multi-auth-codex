@@ -1,7 +1,7 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["file:///Users/a3fckx/Desktop/opencode-multi-auth"],
-  "model": "openai/gpt-5.2-codex-high",
+  "plugin": ["file:///Users/datnguyen/Project/opencode-multi-auth-codex"],
+  "model": "openai/gpt-5.6-sol",
   "provider": {
     "openai": {
       "options": {

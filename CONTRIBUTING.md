@@ -18,20 +18,20 @@ Keep pull requests focused on one problem. A strong pull request includes:
 - a concise description of the problem and intended behavior
 - tests for behavior changes
 - documentation updates for user-facing changes
-- `npm run lint` and the relevant test suites passing locally
+- `bun run lint` and the relevant test suites passing locally
 
 Start with an issue before proposing a large feature or architectural change.
 
 ## Development
 
 ```bash
-npm ci
-npm run lint
-npm test
-npm run build
+bun install --frozen-lockfile
+bun run lint
+bun test
+bun run build
 ```
 
-The project supports Node.js 20 and newer.
+The project supports Bun 1.3 and newer.
 
 ## Responsible use
 

@@ -3,7 +3,7 @@ import { syncAuthFromOpenCode } from './auth-sync.js';
 import { createAuthorizationFlow, loginAccount } from './auth.js';
 import { extractRateLimitUpdate, getBlockingRateLimitResetAt, mergeRateLimits, parseRateLimitResetFromError, parseRetryAfterHeader } from './rate-limits.js';
 import { getNextAccount, markAuthInvalid, markModelUnsupported, markRateLimited, markWorkspaceDeactivated } from './rotation.js';
-import { getDefaultModels } from './models.js';
+import { GPT_5_6_MODELS, getDefaultModels } from './models.js';
 import { getForceState, isForceActive } from './force-mode.js';
 import { getRuntimeSettings } from './settings.js';
 import { listAccounts, updateAccount, loadStore } from './store.js';
@@ -29,7 +29,7 @@ const OPENAI_HEADER_VALUES = {
     ORIGINATOR_CODEX: 'codex_cli_rs'
 };
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth';
-const DEFAULT_LATEST_CODEX_MODEL = 'gpt-5.6';
+const DEFAULT_LATEST_CODEX_MODEL = GPT_5_6_MODELS[0];
 let pluginConfig = { ...DEFAULT_CONFIG };
 function configure(config) {
     pluginConfig = { ...pluginConfig, ...config };
@@ -105,13 +105,14 @@ function normalizeModel(model) {
     if (!model)
         return 'gpt-5.1';
     const modelId = model.includes('/') ? model.split('/').pop() : model;
-    const baseModel = modelId.replace(/-(?:fast|none|minimal|low|medium|high|xhigh)$/, '');
+    const baseModel = modelId.replace(/-(?:fast|none|minimal|low|medium|high|xhigh|max)$/, '');
     // OpenCode may lag behind the ChatGPT Codex model allowlist. Route known older
     // Codex selections to the latest backend model when users opt in.
     const preferLatestRaw = process.env.OPENCODE_MULTI_AUTH_PREFER_CODEX_LATEST;
     const preferLatest = preferLatestRaw === '1' || preferLatestRaw === 'true';
     if (preferLatest &&
-        (baseModel === 'gpt-5.5' ||
+        (baseModel === 'gpt-5.6' ||
+            baseModel === 'gpt-5.5' ||
             baseModel === 'gpt-5.4' ||
             baseModel === 'gpt-5.3-codex' ||
             baseModel === 'gpt-5.2-codex' ||
@@ -128,7 +129,7 @@ function isSparkModel(model) {
     return typeof model === 'string' && model.startsWith('gpt-5.3-codex-spark');
 }
 function supportsFastMode(model) {
-    return model === 'gpt-5.6' || model === 'gpt-5.5' || model === 'gpt-5.4';
+    return model?.startsWith('gpt-5.6-') === true || model === 'gpt-5.5' || model === 'gpt-5.4';
 }
 function ensureContentType(headers) {
     const responseHeaders = new Headers(headers);
@@ -486,25 +487,24 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                 openai.models ||= {};
                 openai.whitelist ||= [];
                 const defaultModels = getDefaultModels();
-                const injectedModelIds = [latestModel];
-                if (supportsFastMode(latestModel) && defaultModels[`${latestModel}-fast`]) {
-                    injectedModelIds.push(`${latestModel}-fast`);
-                }
-                for (const sparkVariant of [
-                    'gpt-5.3-codex-spark-low',
-                    'gpt-5.3-codex-spark-medium',
-                    'gpt-5.3-codex-spark-high',
-                    'gpt-5.3-codex-spark-xhigh'
-                ]) {
-                    if (defaultModels[sparkVariant]) {
-                        injectedModelIds.push(sparkVariant);
-                    }
-                }
+                const injectedModelIds = Array.from(new Set([
+                    latestModel,
+                    ...GPT_5_6_MODELS,
+                    'gpt-5.3-codex-spark'
+                ]));
                 for (const modelID of injectedModelIds) {
                     const model = defaultModels[modelID];
-                    if (!model || openai.models[modelID])
+                    if (!model)
                         continue;
-                    openai.models[modelID] = model;
+                    const existing = openai.models[modelID];
+                    openai.models[modelID] = existing && typeof existing === 'object'
+                        ? {
+                            ...model,
+                            ...existing,
+                            options: { ...model.options, ...(existing.options || {}) },
+                            variants: { ...model.variants, ...(existing.variants || {}) }
+                        }
+                        : model;
                 }
                 for (const modelID of injectedModelIds) {
                     if (!openai.whitelist.includes(modelID)) {
@@ -605,7 +605,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                         const isStreaming = body?.stream === true;
                         const fastMode = /-fast$/.test(body.model || '');
                         const supportedFastMode = fastMode && supportsFastMode(normalizedModel);
-                        const reasoningMatch = body.model?.match(/-(none|low|medium|high|xhigh)$/);
+                        const reasoningMatch = body.model?.match(/-(none|low|medium|high|xhigh|max)$/);
                         const payload = {
                             ...body,
                             model: normalizedModel,
@@ -623,7 +623,7 @@ const MultiAuthPlugin = async ({ client, $, serverUrl, project, directory }) => 
                         if (reasoningMatch?.[1]) {
                             payload.reasoning = {
                                 ...(payload.reasoning || {}),
-                                effort: reasoningMatch[1]
+                                effort: reasoningMatch[1] === 'max' ? 'xhigh' : reasoningMatch[1]
                             };
                             if (!isSparkModel(normalizedModel)) {
                                 payload.reasoning.summary = payload.reasoning?.summary || 'auto';

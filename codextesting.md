@@ -10,20 +10,20 @@ Use this file as your step-by-step TODO. Check each box as you complete it.
 - [ ] Confirm this repo is built from latest local source:
 
 ```bash
-npm run lint
-npm run build
+bun run lint
+bun run build
 ```
 
 - [ ] Run the full automated validation once before manual/live testing:
 
 ```bash
-npm run test:unit
-npm run test:integration
-npm run test:web:headless
-npm run test:failure
-npm run test:stress
-npm run test:sandbox
-npm run test:soak:48h
+bun run test:unit
+bun run test:integration
+bun run test:web:headless
+bun run test:failure
+bun run test:stress
+bun run test:sandbox
+bun run test:soak:48h
 ```
 
 ## 2) Start Dashboard + Basic Health
@@ -31,7 +31,7 @@ npm run test:soak:48h
 - [ ] Start dashboard on loopback:
 
 ```bash
-node dist/cli.js web --host 127.0.0.1 --port 3434
+bun dist/cli.js web --host 127.0.0.1 --port 3434
 ```
 
 - [ ] Open `http://127.0.0.1:3434` and confirm UI renders (no blank page, no JS syntax errors).
@@ -44,7 +44,7 @@ curl -s http://127.0.0.1:3434/api/state
 - [ ] Verify non-loopback bind is blocked:
 
 ```bash
-node dist/cli.js web --host 0.0.0.0 --port 3434
+bun dist/cli.js web --host 0.0.0.0 --port 3434
 ```
 
 Expected: fails with `LOCALHOST_ONLY`.
@@ -65,14 +65,14 @@ Expected: first is `400` (`INVALID_JSON`), second returns normal API error but p
 - [ ] Add at least 2 test accounts:
 
 ```bash
-node dist/cli.js add test1
-node dist/cli.js add test2
+bun dist/cli.js add test1
+bun dist/cli.js add test2
 ```
 
 - [ ] Confirm accounts present:
 
 ```bash
-node dist/cli.js status
+bun dist/cli.js status
 curl -s http://127.0.0.1:3434/api/accounts
 ```
 

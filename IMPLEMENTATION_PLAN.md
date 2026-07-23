@@ -86,15 +86,15 @@ Primary goal: multi-account Codex linking + rotation that just works.
 - [x] No uncommitted changes in baseline
 
 **L1: Build Verification**
-- [x] `npm ci` completes with zero exit code
-- [x] `npm run build` produces `dist/` directory
-- [x] `npx tsc --noEmit` passes with zero type errors
+- [x] `bun install --frozen-lockfile` completes with zero exit code
+- [x] `bun run build` produces `dist/` directory
+- [x] `bun run lint` passes with zero type errors
 - [x] Entry point (`dist/cli.js`) exists and is executable
 
 **L2: Baseline Behavior Capture**
-- [x] `node dist/cli.js status` executes without crash
-- [x] `node dist/cli.js web --help` shows expected help text
-- [x] Dashboard starts on port (manual check: `node dist/cli.js web --port 9999`)
+- [x] `bun dist/cli.js status` executes without crash
+- [x] `bun dist/cli.js web --help` shows expected help text
+- [x] Dashboard starts on port (manual check: `bun dist/cli.js web --port 9999`)
 - [x] Baseline limits refresh command executes
 - [x] Log files generated in expected location
 
@@ -552,10 +552,9 @@ Primary goal: multi-account Codex linking + rotation that just works.
 ## Phase H: Full Validation Matrix (Reliability + Security)
 ### Todos
 - [ ] L0 Build/Type gates:
-  - [ ] `npm ci`
-  - [ ] `npm run lint` (if script exists; otherwise document N/A)
-  - [ ] `npm run build`
-  - [ ] `npx tsc --noEmit`
+  - [ ] `bun install --frozen-lockfile`
+  - [ ] `bun run lint`
+  - [ ] `bun run build`
 - [ ] L1 Unit coverage:
   - [ ] rotation math/fairness
   - [ ] retry bounds
@@ -629,15 +628,15 @@ Primary goal: multi-account Codex linking + rotation that just works.
 - [ ] Doc review: `TEST_EXECUTION_PLAN.md` matches actual test scripts
 
 **L2: Script Availability Verification**
-- [ ] Verify: `npm run lint` script exists and runs
-- [ ] Verify: `npm run build` script exists and runs
-- [ ] Verify: `npm run test:unit` script exists and runs
-- [ ] Verify: `npm run test:integration` script exists and runs
-- [ ] Verify: `npm run test:web:headless` script exists and runs
-- [ ] Verify: `npm run test:failure` script exists and runs
-- [ ] Verify: `npm run test:stress` script exists and runs
-- [ ] Verify: `npm run test:sandbox` script exists and runs
-- [ ] Verify: `npm run test:soak:48h` script exists and runs
+- [ ] Verify: `bun run lint` script exists and runs
+- [ ] Verify: `bun run build` script exists and runs
+- [ ] Verify: `bun run test:unit` script exists and runs
+- [ ] Verify: `bun run test:integration` script exists and runs
+- [ ] Verify: `bun run test:web:headless` script exists and runs
+- [ ] Verify: `bun run test:failure` script exists and runs
+- [ ] Verify: `bun run test:stress` script exists and runs
+- [ ] Verify: `bun run test:sandbox` script exists and runs
+- [ ] Verify: `bun run test:soak:48h` script exists and runs
 
 **L3: Canary Testing**
 - [ ] Canary: 24h canary test started on round-robin strategy

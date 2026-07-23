@@ -5,9 +5,9 @@ Use this to manually test without touching your live OpenCode/Codex setup.
 ## 1) One-time setup (inside required folder)
 ```bash
 cd /Users/jorgitin/Documents/projects/open_multi_auth
-git clone https://github.com/floze-the-genius/opencode-multi-auth-codex.git .
-npm ci
-npm run build
+git clone https://github.com/nguyenthdat/opencode-multi-auth-codex.git .
+bun install --frozen-lockfile
+bun run build
 ```
 
 If this folder is not empty, clone to a temporary location and copy the repo contents into `/Users/jorgitin/Documents/projects/open_multi_auth` before running tests.
@@ -24,18 +24,18 @@ mkdir -p "$HOME/.codex" "$OPENCODE_MULTI_AUTH_STORE_DIR"
 ## 3) Invoke sandbox version (manual testing)
 Status:
 ```bash
-node dist/cli.js status
+bun dist/cli.js status
 ```
 
 Run dashboard locally:
 ```bash
-node dist/cli.js web --host 127.0.0.1 --port 4343
+bun dist/cli.js web --host 127.0.0.1 --port 4343
 ```
 Open: `http://127.0.0.1:4343`
 
 ## 4) Fast safety checks (must stay sandboxed)
 ```bash
-node dist/cli.js path
+bun dist/cli.js path
 echo "$HOME"
 echo "$OPENCODE_MULTI_AUTH_STORE_DIR"
 echo "$OPENCODE_MULTI_AUTH_CODEX_AUTH_FILE"
@@ -50,14 +50,14 @@ Expected:
 HOME=/tmp/oma-sandbox-home \
 OPENCODE_MULTI_AUTH_STORE_DIR=/tmp/oma-sandbox-store \
 OPENCODE_MULTI_AUTH_CODEX_AUTH_FILE=/tmp/oma-sandbox-home/.codex/auth.json \
-node dist/cli.js web --host 127.0.0.1 --port 4343
+bun dist/cli.js web --host 127.0.0.1 --port 4343
 ```
 
 ## 6) Quick troubleshooting
 
 `EADDRINUSE` (port busy):
 ```bash
-node dist/cli.js web --host 127.0.0.1 --port 4344
+bun dist/cli.js web --host 127.0.0.1 --port 4344
 ```
 
 Store looks wrong/corrupt:

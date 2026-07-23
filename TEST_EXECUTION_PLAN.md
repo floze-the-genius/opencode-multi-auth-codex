@@ -15,15 +15,15 @@ This runbook defines exactly how to validate the implementation after coding is 
 - `Reliability`: stress + crash recovery + soak.
 
 ## 3) Required Scripts (must exist by implementation complete)
-- `npm run lint`
-- `npm run build`
-- `npm run test:unit`
-- `npm run test:integration`
-- `npm run test:web:headless`
-- `npm run test:failure`
-- `npm run test:stress`
-- `npm run test:sandbox`
-- `npm run test:soak:48h`
+- `bun run lint`
+- `bun run build`
+- `bun run test:unit`
+- `bun run test:integration`
+- `bun run test:web:headless`
+- `bun run test:failure`
+- `bun run test:stress`
+- `bun run test:sandbox`
+- `bun run test:soak:48h`
 
 If a script is missing, add it as part of implementation before declaring test-complete.
 
@@ -102,18 +102,17 @@ If any stage fails, fix and restart from the failed stage; if fix touches shared
 
 ## 8) Command Runbook
 ```bash
-npm ci
-npm run lint
-npm run build
-npx tsc --noEmit
+bun install --frozen-lockfile
+bun run lint
+bun run build
 
-npm run test:unit
-npm run test:integration
-npm run test:web:headless
-npm run test:failure
-npm run test:stress
-npm run test:sandbox
-npm run test:soak:48h
+bun run test:unit
+bun run test:integration
+bun run test:web:headless
+bun run test:failure
+bun run test:stress
+bun run test:sandbox
+bun run test:soak:48h
 ```
 
 ## 9) Pass/Fail Criteria
