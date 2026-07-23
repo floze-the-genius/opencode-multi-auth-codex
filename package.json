@@ -26,9 +26,6 @@
     "test:soak:48h": "bun test tests/soak",
     "lint": "tsc --noEmit"
   },
-  "dependencies": {
-    "opencode-multi-auth": "."
-  },
   "peerDependencies": {
     "@opencode-ai/plugin": "^1.18.4"
   },
