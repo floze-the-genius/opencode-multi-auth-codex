@@ -88,46 +88,46 @@ configurable routing, limit visibility, and failure recovery.
 Install from npm:
 
 ```bash
-opencode plugin @guard22/opencode-multi-auth-codex@latest --global
+opencode plugin @nguyenthdat/opencode-multi-auth-codex@latest --global
 ```
 
 If you prefer config-based installation, OpenCode also supports:
 
 ```json
 {
-  "plugin": ["@guard22/opencode-multi-auth-codex@latest"]
+  "plugin": ["@nguyenthdat/opencode-multi-auth-codex@latest"]
 }
 ```
 
 Package:
-- npm: [@guard22/opencode-multi-auth-codex](https://www.npmjs.com/package/@guard22/opencode-multi-auth-codex)
-- repo: [floze-the-genius/opencode-multi-auth-codex](https://github.com/floze-the-genius/opencode-multi-auth-codex)
+- npm: [@nguyenthdat/opencode-multi-auth-codex](https://www.npmjs.com/package/@nguyenthdat/opencode-multi-auth-codex)
+- repo: [nguyenthdat/opencode-multi-auth-codex](https://github.com/nguyenthdat/opencode-multi-auth-codex)
 
 ### GitHub source install (fallback)
 
 Use this if you want the repo head instead of the latest npm release:
 
 ```bash
-opencode plugin github:floze-the-genius/opencode-multi-auth-codex --global
+opencode plugin github:nguyenthdat/opencode-multi-auth-codex --global
 ```
 
 ```json
 {
-  "plugin": ["github:floze-the-genius/opencode-multi-auth-codex"]
+  "plugin": ["github:nguyenthdat/opencode-multi-auth-codex"]
 }
 ```
 
 OpenCode support:
-- GPT-5.5 may appear in Codex before OpenCode ships built-in model metadata
-- the plugin backfills `gpt-5.5` and `gpt-5.5-fast` into runtime config by default
-- OpenCode builds that validate model IDs before plugin config is applied may still reject direct `openai/gpt-5.5` selection
-- in that case, keep selecting `openai/gpt-5.4` and enable latest-model mapping:
+- GPT-5.6 may appear in Codex before OpenCode ships built-in model metadata
+- the plugin backfills `gpt-5.6` and `gpt-5.6-fast` into runtime config by default
+- OpenCode builds that validate model IDs before plugin config is applied may still reject direct `openai/gpt-5.6` selection
+- in that case, keep selecting a previous accepted model such as `openai/gpt-5.5` or `openai/gpt-5.4` and enable latest-model mapping:
 
 ```bash
 export OPENCODE_MULTI_AUTH_PREFER_CODEX_LATEST=1
 ```
 
-- `gpt-5.4` remains available and can be selected or used as a rollback target
+- `gpt-5.5` and `gpt-5.4` remain available and can be selected or used as rollback targets
 - disable runtime model injection only if you explicitly want that behavior off:
 
 ```bash
@@ -345,20 +345,20 @@ Default behavior:
 
 Environment variables:
 - `OPENCODE_MULTI_AUTH_PREFER_CODEX_LATEST=1` enables mapping to the latest backend model
-- `OPENCODE_MULTI_AUTH_CODEX_LATEST_MODEL=gpt-5.4` overrides the mapping target, for example to roll back from the default `gpt-5.5`
+- `OPENCODE_MULTI_AUTH_CODEX_LATEST_MODEL=gpt-5.5` overrides the mapping target, for example to roll back from the default `gpt-5.6`
 - `OPENCODE_MULTI_AUTH_DEBUG=1` prints model mapping debug logs
 - `OPENCODE_MULTI_AUTH_INJECT_MODELS=0` disables automatic runtime model backfill
 
 ## Fast Mode
 
-For OpenCode builds that already accept `gpt-5.5` model IDs, the clean way to mirror Codex Fast mode is:
+For OpenCode builds that already accept `gpt-5.6` model IDs, the clean way to mirror Codex Fast mode is:
 
-- keep the model as `openai/gpt-5.5`
+- keep the model as `openai/gpt-5.6`
 - use a model variant such as `fast`
 - set `serviceTier=priority` in the variant config
 
 Behavior:
-- the backend model stays `gpt-5.5`
+- the backend model stays `gpt-5.6`
 - the plugin forwards the request with `service_tier=priority`
 - the plugin does not automatically lower reasoning or verbosity
 
@@ -369,7 +369,7 @@ Recommended OpenCode config:
   "provider": {
     "openai": {
       "models": {
-        "gpt-5.5": {
+        "gpt-5.6": {
           "variants": {
             "Medium Fast": {
               "reasoningEffort": "medium",
@@ -391,7 +391,7 @@ Recommended OpenCode config:
 }
 ```
 
-For OpenCode builds that still reject `openai/gpt-5.5`, keep selecting `openai/gpt-5.4`, keep your existing Fast variant, and set `OPENCODE_MULTI_AUTH_PREFER_CODEX_LATEST=1`. The plugin will send `gpt-5.5` to the Codex backend while preserving `service_tier=priority`.
+For OpenCode builds that still reject `openai/gpt-5.6`, keep selecting `openai/gpt-5.5` or `openai/gpt-5.4`, keep your existing Fast variant, and set `OPENCODE_MULTI_AUTH_PREFER_CODEX_LATEST=1`. The plugin will send `gpt-5.6` to the Codex backend while preserving `service_tier=priority`.
 
 See [docs/gpt-5.4-fast-benchmark.md](./docs/gpt-5.4-fast-benchmark.md) for a continued-session benchmark summary.
 

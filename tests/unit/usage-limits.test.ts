@@ -1,4 +1,4 @@
-import { jest } from '@jest/globals'
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test'
 import {
   classifyUsageApiFailure,
   fetchUsageRateLimitsForAccount
@@ -71,7 +71,7 @@ describe('usage API fetch', () => {
   afterEach(() => {
     global.fetch = originalFetch
     delete process.env.OPENCODE_MULTI_AUTH_USAGE_BASE_URL
-    jest.restoreAllMocks()
+    mock.restore()
   })
 
   it('calls the Codex usage endpoint with Codex originator headers', async () => {
@@ -82,7 +82,7 @@ describe('usage API fetch', () => {
         secondary_window: { used_percent: 10, reset_after_seconds: 120 }
       }
     }), { status: 200 }))
-    global.fetch = mockFetch as typeof fetch
+    global.fetch = mockFetch as unknown as typeof fetch
 
     const result = await fetchUsageRateLimitsForAccount(account)
 

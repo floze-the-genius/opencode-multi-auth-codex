@@ -1,4 +1,5 @@
-import { jest } from '@jest/globals'
+import { beforeEach, describe, expect, it, jest } from 'bun:test'
+import { getRefreshQueueState, startRefreshQueue } from '../../src/refresh-queue.js'
 import type { AccountCredentials } from '../../src/types.js'
 
 const refreshRateLimitsForAccount = jest.fn<(account: AccountCredentials) => Promise<any>>()
@@ -6,21 +7,12 @@ const updateAccount = jest.fn()
 const logInfo = jest.fn()
 const logWarn = jest.fn()
 
-jest.unstable_mockModule('../../src/limits-refresh.js', () => ({
-  refreshRateLimitsForAccount
-}))
-
-jest.unstable_mockModule('../../src/store.js', () => ({
-  updateAccount
-}))
-
-jest.unstable_mockModule('../../src/logger.js', () => ({
+const dependencies = {
+  refreshRateLimitsForAccount,
+  updateAccount,
   logInfo,
   logWarn
-}))
-
-let startRefreshQueue: typeof import('../../src/refresh-queue.js').startRefreshQueue
-let getRefreshQueueState: typeof import('../../src/refresh-queue.js').getRefreshQueueState
+}
 
 const accounts: AccountCredentials[] = Array.from({ length: 5 }, (_, index) => ({
   alias: `acc-${index + 1}`,
@@ -39,10 +31,6 @@ async function waitForQueueToFinish(): Promise<void> {
   }
   throw new Error('Queue did not finish in time')
 }
-
-beforeAll(async () => {
-  ;({ startRefreshQueue, getRefreshQueueState } = await import('../../src/refresh-queue.js'))
-})
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -63,7 +51,7 @@ describe('refresh queue concurrency', () => {
       return { alias: account.alias, updated: true }
     })
 
-    const queue = startRefreshQueue(accounts)
+    const queue = startRefreshQueue(accounts, undefined, dependencies)
     expect(queue.concurrency).toBe(2)
 
     await new Promise((resolve) => setTimeout(resolve, 5))
@@ -97,7 +85,7 @@ describe('refresh queue concurrency', () => {
       usageCount: 0
     }))
 
-    const queue = startRefreshQueue(manyAccounts)
+    const queue = startRefreshQueue(manyAccounts, undefined, dependencies)
     await waitForQueueToFinish()
 
     expect(queue.concurrency).toBe(20)

@@ -1,8 +1,8 @@
-import { jest } from '@jest/globals'
+import { beforeEach, describe, expect, it, jest } from 'bun:test'
+import { refreshRateLimitsForAccount } from '../../src/limits-refresh.js'
 import type { AccountCredentials } from '../../src/types.js'
 
 const updateAccount = jest.fn()
-const loadStore = jest.fn()
 const probeRateLimitsForAccount = jest.fn<() => Promise<any>>()
 const fetchUsageRateLimitsForAccount = jest.fn<() => Promise<any>>()
 const logError = jest.fn()
@@ -10,30 +10,15 @@ const logInfo = jest.fn()
 const markAuthInvalid = jest.fn()
 const markWorkspaceDeactivated = jest.fn()
 
-jest.unstable_mockModule('../../src/store.js', () => ({
-  loadStore,
-  updateAccount
-}))
-
-jest.unstable_mockModule('../../src/probe-limits.js', () => ({
-  probeRateLimitsForAccount
-}))
-
-jest.unstable_mockModule('../../src/usage-limits.js', () => ({
-  fetchUsageRateLimitsForAccount
-}))
-
-jest.unstable_mockModule('../../src/logger.js', () => ({
+const dependencies = {
+  updateAccount,
   logError,
-  logInfo
-}))
-
-jest.unstable_mockModule('../../src/rotation.js', () => ({
+  logInfo,
+  probeRateLimitsForAccount,
+  fetchUsageRateLimitsForAccount,
   markAuthInvalid,
   markWorkspaceDeactivated
-}))
-
-let refreshRateLimitsForAccount: typeof import('../../src/limits-refresh.js').refreshRateLimitsForAccount
+}
 
 const baseAccount: AccountCredentials = {
   alias: 'dead-token',
@@ -43,18 +28,8 @@ const baseAccount: AccountCredentials = {
   usageCount: 0
 }
 
-beforeAll(async () => {
-  ;({ refreshRateLimitsForAccount } = await import('../../src/limits-refresh.js'))
-})
-
 beforeEach(() => {
   jest.clearAllMocks()
-  loadStore.mockReturnValue({
-    accounts: {},
-    activeAlias: null,
-    rotationIndex: 0,
-    lastRotation: Date.now()
-  })
 })
 
 describe('refreshRateLimitsForAccount', () => {
@@ -66,7 +41,7 @@ describe('refreshRateLimitsForAccount', () => {
       authInvalid: true
     })
 
-    const result = await refreshRateLimitsForAccount({ ...baseAccount })
+    const result = await refreshRateLimitsForAccount({ ...baseAccount }, dependencies)
 
     expect(probeRateLimitsForAccount).not.toHaveBeenCalled()
     expect(markAuthInvalid).toHaveBeenCalledWith('dead-token')
@@ -96,7 +71,10 @@ describe('refreshRateLimitsForAccount', () => {
       workspaceDeactivatedReason: 'deactivated_workspace'
     })
 
-    const result = await refreshRateLimitsForAccount({ ...baseAccount, alias: 'workspace-dead' })
+    const result = await refreshRateLimitsForAccount(
+      { ...baseAccount, alias: 'workspace-dead' },
+      dependencies
+    )
 
     expect(probeRateLimitsForAccount).not.toHaveBeenCalled()
     expect(markAuthInvalid).not.toHaveBeenCalled()
@@ -122,11 +100,14 @@ describe('refreshRateLimitsForAccount', () => {
       planType: 'pro'
     })
 
-    const result = await refreshRateLimitsForAccount({
-      ...baseAccount,
-      authInvalid: true,
-      authInvalidatedAt: Date.now() - 10_000
-    })
+    const result = await refreshRateLimitsForAccount(
+      {
+        ...baseAccount,
+        authInvalid: true,
+        authInvalidatedAt: Date.now() - 10_000
+      },
+      dependencies
+    )
 
     expect(probeRateLimitsForAccount).not.toHaveBeenCalled()
     expect(updateAccount).toHaveBeenLastCalledWith(

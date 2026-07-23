@@ -1,11 +1,20 @@
-import type { OpenAIModel, ProviderModel } from './types.js'
+import type { OpenAIModel, ProviderModel, ProviderModelOptions } from './types.js'
 
 const MODELS_ENDPOINT = 'https://api.openai.com/v1/models'
 
-const REASONING_LEVELS = ['none', 'low', 'medium', 'high', 'xhigh'] as const
+export const REASONING_LEVELS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 type ReasoningLevel = typeof REASONING_LEVELS[number]
 
+export const GPT_5_6_MODELS = [
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna'
+] as const
+
 const MODEL_LIMITS: Record<string, { context: number; input?: number; output: number }> = {
+  'gpt-5.6-sol': { context: 1_050_000, input: 922_000, output: 128_000 },
+  'gpt-5.6-luna': { context: 1_050_000, input: 922_000, output: 128_000 },
+  'gpt-5.6-terra': { context: 1_050_000, input: 922_000, output: 128_000 },
   'gpt-5.5': { context: 530000, input: 400000, output: 130000 },
   'gpt-5.4': { context: 1050000, input: 922000, output: 128000 },
   'gpt-5.3': { context: 272000, output: 128000 },
@@ -26,56 +35,58 @@ function getModelLimits(modelId: string): { context: number; input?: number; out
   return { context: 128000, output: 32000 }
 }
 
-function buildProviderModel(baseId: string, reasoning: ReasoningLevel): ProviderModel {
-  const limits = getModelLimits(baseId)
-  const displayName = `${baseId} ${reasoning.charAt(0).toUpperCase() + reasoning.slice(1)} (OAuth)`
-
-  return {
-    name: displayName,
-    limit: limits,
-    modalities: {
-      input: ['text', 'image'],
-      output: ['text']
-    },
-    options: {
-      reasoningEffort: reasoning,
-      reasoningSummary: reasoning === 'high' || reasoning === 'xhigh' ? 'detailed' : 'auto',
-      textVerbosity: 'medium',
-      include: ['reasoning.encrypted_content'],
-      store: false
-    }
-  }
+function isGPT56Family(baseId: string): boolean {
+  return baseId.startsWith('gpt-5.6-')
 }
 
-function buildDefaultProviderModel(baseId: string): ProviderModel {
+function buildReasoningOptions(level: ReasoningLevel): ProviderModelOptions {
+  // OpenAI names its strongest effort "xhigh"; expose "max" as an OpenCode alias.
+  const reasoningEffort = level === 'max' ? 'xhigh' : level
+
   return {
-    ...buildProviderModel(baseId, 'medium'),
-    name: `${baseId} (OAuth)`
+    reasoningEffort,
+    reasoningSummary: reasoningEffort === 'high' || reasoningEffort === 'xhigh' ? 'detailed' : 'auto',
+    textVerbosity: 'medium',
+    include: ['reasoning.encrypted_content'],
+    store: false
   }
 }
 
 function supportsFastMode(baseId: string): boolean {
-  return baseId === 'gpt-5.5' || baseId === 'gpt-5.4'
+  return isGPT56Family(baseId) || baseId === 'gpt-5.5' || baseId === 'gpt-5.4'
 }
 
-function buildFastProviderModel(baseId: string): ProviderModel {
-  const limits = getModelLimits(baseId)
+function getReasoningLevels(baseId: string): readonly ReasoningLevel[] {
+  if (isGPT56Family(baseId)) return REASONING_LEVELS
+  if (baseId === 'gpt-5.1-codex-mini') return ['medium', 'high']
+  if (baseId === 'gpt-5.1-codex') return ['low', 'medium', 'high']
+  if (baseId === 'gpt-5.1') return ['none', 'low', 'medium', 'high']
+  if (baseId.includes('codex')) return ['low', 'medium', 'high', 'xhigh']
+  return ['none', 'low', 'medium', 'high', 'xhigh']
+}
+
+function buildProviderModel(baseId: string): ProviderModel {
+  const variants = Object.fromEntries(
+    getReasoningLevels(baseId).map((level) => [level, buildReasoningOptions(level)])
+  )
+
+  if (supportsFastMode(baseId)) {
+    variants.fast = {
+      ...buildReasoningOptions('medium'),
+      serviceTier: 'priority'
+    }
+  }
 
   return {
-    name: `${baseId} Fast (OAuth)`,
-    limit: limits,
+    name: `${baseId} (OAuth)`,
+    reasoning: true,
+    limit: getModelLimits(baseId),
     modalities: {
       input: ['text', 'image'],
       output: ['text']
     },
-    options: {
-      reasoningEffort: 'medium',
-      reasoningSummary: 'auto',
-      textVerbosity: 'medium',
-      include: ['reasoning.encrypted_content'],
-      store: false,
-      service_tier: 'priority'
-    }
+    options: buildReasoningOptions('medium'),
+    variants
   }
 }
 
@@ -107,22 +118,7 @@ export function generateModelVariants(baseModels: OpenAIModel[]): Record<string,
 
   for (const model of baseModels) {
     const baseId = model.id
-    const isCodex = baseId.includes('codex')
-
-    result[baseId] = buildDefaultProviderModel(baseId)
-
-    const levels: ReasoningLevel[] = isCodex
-      ? ['low', 'medium', 'high', 'xhigh']
-      : ['none', 'low', 'medium', 'high', 'xhigh']
-
-    for (const level of levels) {
-      const variantId = `${baseId}-${level}`
-      result[variantId] = buildProviderModel(baseId, level)
-    }
-
-    if (supportsFastMode(baseId)) {
-      result[`${baseId}-fast`] = buildFastProviderModel(baseId)
-    }
+    result[baseId] = buildProviderModel(baseId)
   }
 
   return result
@@ -130,6 +126,7 @@ export function generateModelVariants(baseModels: OpenAIModel[]): Record<string,
 
 export function getDefaultModels(): Record<string, ProviderModel> {
   const defaults = [
+    ...GPT_5_6_MODELS,
     'gpt-5.5',
     'gpt-5.4',
     'gpt-5.3',
@@ -146,25 +143,7 @@ export function getDefaultModels(): Record<string, ProviderModel> {
   const result: Record<string, ProviderModel> = {}
 
   for (const baseId of defaults) {
-    const isCodex = baseId.includes('codex')
-    const levels: ReasoningLevel[] = isCodex
-      ? ['low', 'medium', 'high', 'xhigh']
-      : ['none', 'low', 'medium', 'high', 'xhigh']
-
-    result[baseId] = buildDefaultProviderModel(baseId)
-
-    for (const level of levels) {
-      if (baseId === 'gpt-5.1-codex-mini' && !['medium', 'high'].includes(level)) continue
-      if (baseId === 'gpt-5.1-codex' && level === 'xhigh') continue
-      if (baseId === 'gpt-5.1' && level === 'xhigh') continue
-
-      const variantId = `${baseId}-${level}`
-      result[variantId] = buildProviderModel(baseId, level)
-    }
-
-    if (supportsFastMode(baseId)) {
-      result[`${baseId}-fast`] = buildFastProviderModel(baseId)
-    }
+    result[baseId] = buildProviderModel(baseId)
   }
 
   return result

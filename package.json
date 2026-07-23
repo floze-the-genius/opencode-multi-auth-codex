@@ -1,68 +1,46 @@
 {
-  "name": "@guard22/opencode-multi-auth-codex",
-  "version": "1.4.3",
+  "name": "@nguyenthdat/opencode-multi-auth-codex",
+  "version": "1.5.0",
   "description": "Local OpenCode account routing, session controls, and reliability tooling for Codex OAuth",
   "type": "module",
+  "packageManager": "bun@1.3.14",
+  "engines": { "bun": ">=1.3.0" },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "opencode-multi-auth": "dist/cli.js"
-  },
+  "bin": { "opencode-multi-auth": "dist/cli.js" },
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",
-    "web": "node ./dist/cli.js web --port 3434 --host 127.0.0.1",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
-    "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/unit",
-    "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/integration",
-    "test:web:headless": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/web-headless",
-    "test:failure": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/failure",
-    "test:stress": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/stress",
-    "test:sandbox": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/sandbox",
-    "test:soak:48h": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/soak",
+    "web": "bun ./dist/cli.js web --port 3434 --host 127.0.0.1",
+    "test": "bun test",
+    "test:unit": "bun test tests/unit",
+    "test:integration": "bun test tests/integration",
+    "test:web:headless": "bun test tests/web-headless",
+    "test:failure": "bun test tests/failure",
+    "test:stress": "bun test tests/stress",
+    "test:sandbox": "bun test tests/sandbox",
+    "test:soak:48h": "bun test tests/soak",
     "lint": "tsc --noEmit"
   },
   "dependencies": {},
-  "peerDependencies": {
-    "@opencode-ai/plugin": "^1.0.150"
-  },
-  "peerDependenciesMeta": {
-    "@opencode-ai/plugin": {
-      "optional": true
-    }
-  },
+  "peerDependencies": { "@opencode-ai/plugin": "^1.18.4" },
+  "peerDependenciesMeta": { "@opencode-ai/plugin": { "optional": true } },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.0.193",
-    "@opencode-ai/sdk": "^1.0.193",
-    "@types/jest": "^29.5.14",
-    "@types/node": "^22.10.2",
-    "jest": "^29.7.0",
-    "ts-jest": "^29.4.6",
-    "typescript": "^5.7.2"
+    "@opencode-ai/plugin": "^1.18.4",
+    "@opencode-ai/sdk": "^1.18.4",
+    "@types/bun": "^1.3.14",
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3"
   },
-  "files": [
-    "dist",
-    "auto-login/auto_login.py",
-    "auto-login/credentials.example.json"
-  ],
-  "publishConfig": {
-    "access": "public"
-  },
+  "files": ["dist", "auto-login/auto_login.py", "auto-login/credentials.example.json"],
+  "publishConfig": { "access": "public" },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/floze-the-genius/opencode-multi-auth-codex.git"
+    "url": "git+https://github.com/nguyenthdat/opencode-multi-auth-codex.git"
   },
-  "homepage": "https://github.com/floze-the-genius/opencode-multi-auth-codex#readme",
-  "bugs": {
-    "url": "https://github.com/floze-the-genius/opencode-multi-auth-codex/issues"
-  },
-  "keywords": [
-    "opencode",
-    "openai",
-    "codex",
-    "oauth",
-    "multi-account"
-  ],
-  "author": "Floze",
+  "homepage": "https://github.com/nguyenthdat/opencode-multi-auth-codex#readme",
+  "bugs": { "url": "https://github.com/nguyenthdat/opencode-multi-auth-codex/issues" },
+  "keywords": ["opencode", "openai", "codex", "oauth", "multi-account"],
+  "author": "Dat Nguyen",
   "license": "MIT"
 }

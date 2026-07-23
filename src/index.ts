@@ -16,7 +16,7 @@ import {
   markRateLimited,
   markWorkspaceDeactivated
 } from './rotation.js'
-import { getDefaultModels } from './models.js'
+import { GPT_5_6_MODELS, getDefaultModels } from './models.js'
 import { getForceState, isForceActive } from './force-mode.js'
 import { getRuntimeSettings } from './settings.js'
 import { listAccounts, updateAccount, loadStore } from './store.js'
@@ -43,7 +43,7 @@ const OPENAI_HEADER_VALUES = {
   ORIGINATOR_CODEX: 'codex_cli_rs'
 }
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth'
-const DEFAULT_LATEST_CODEX_MODEL = 'gpt-5.5'
+const DEFAULT_LATEST_CODEX_MODEL = GPT_5_6_MODELS[0]
 
 let pluginConfig: PluginConfig = { ...DEFAULT_CONFIG }
 
@@ -122,7 +122,7 @@ function normalizeModel(model: string | undefined): string {
   if (!model) return 'gpt-5.1'
 
   const modelId = model.includes('/') ? model.split('/').pop()! : model
-  const baseModel = modelId.replace(/-(?:fast|none|minimal|low|medium|high|xhigh)$/, '')
+  const baseModel = modelId.replace(/-(?:fast|none|minimal|low|medium|high|xhigh|max)$/, '')
 
   // OpenCode may lag behind the ChatGPT Codex model allowlist. Route known older
   // Codex selections to the latest backend model when users opt in.
@@ -132,6 +132,8 @@ function normalizeModel(model: string | undefined): string {
   if (
     preferLatest &&
     (
+      baseModel === 'gpt-5.6' ||
+      baseModel === 'gpt-5.5' ||
       baseModel === 'gpt-5.4' ||
       baseModel === 'gpt-5.3-codex' ||
       baseModel === 'gpt-5.2-codex' ||
@@ -157,7 +159,7 @@ function isSparkModel(model: string | undefined): boolean {
 }
 
 function supportsFastMode(model: string | undefined): boolean {
-  return model === 'gpt-5.5' || model === 'gpt-5.4'
+  return model?.startsWith('gpt-5.6-') === true || model === 'gpt-5.5' || model === 'gpt-5.4'
 }
 
 function ensureContentType(headers: Headers): Headers {
@@ -566,25 +568,25 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
         openai.whitelist ||= []
 
         const defaultModels = getDefaultModels()
-        const injectedModelIds = [latestModel]
-        if (supportsFastMode(latestModel) && defaultModels[`${latestModel}-fast`]) {
-          injectedModelIds.push(`${latestModel}-fast`)
-        }
-        for (const sparkVariant of [
-          'gpt-5.3-codex-spark-low',
-          'gpt-5.3-codex-spark-medium',
-          'gpt-5.3-codex-spark-high',
-          'gpt-5.3-codex-spark-xhigh'
-        ]) {
-          if (defaultModels[sparkVariant]) {
-            injectedModelIds.push(sparkVariant)
-          }
-        }
+        const injectedModelIds = Array.from(new Set([
+          latestModel,
+          ...GPT_5_6_MODELS,
+          'gpt-5.3-codex-spark'
+        ]))
 
         for (const modelID of injectedModelIds) {
           const model = defaultModels[modelID]
-          if (!model || openai.models[modelID]) continue
-          openai.models[modelID] = model
+          if (!model) continue
+
+          const existing = openai.models[modelID]
+          openai.models[modelID] = existing && typeof existing === 'object'
+            ? {
+                ...model,
+                ...existing,
+                options: { ...model.options, ...(existing.options || {}) },
+                variants: { ...model.variants, ...(existing.variants || {}) }
+              }
+            : model
         }
 
         for (const modelID of injectedModelIds) {
@@ -714,7 +716,7 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
             const isStreaming = body?.stream === true
             const fastMode = /-fast$/.test(body.model || '')
             const supportedFastMode = fastMode && supportsFastMode(normalizedModel)
-            const reasoningMatch = body.model?.match(/-(none|low|medium|high|xhigh)$/)
+            const reasoningMatch = body.model?.match(/-(none|low|medium|high|xhigh|max)$/)
 
             const payload: Record<string, any> = {
               ...body,
@@ -736,7 +738,7 @@ const MultiAuthPlugin: Plugin = async ({ client, $, serverUrl, project, director
             if (reasoningMatch?.[1]) {
               payload.reasoning = {
                 ...(payload.reasoning || {}),
-                effort: reasoningMatch[1]
+                effort: reasoningMatch[1] === 'max' ? 'xhigh' : reasoningMatch[1]
               }
 
               if (!isSparkModel(normalizedModel)) {

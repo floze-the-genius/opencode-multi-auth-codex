@@ -29,7 +29,7 @@ const OPENAI_HEADER_VALUES = {
     ORIGINATOR_CODEX: 'codex_cli_rs'
 };
 const JWT_CLAIM_PATH = 'https://api.openai.com/auth';
-const DEFAULT_LATEST_CODEX_MODEL = 'gpt-5.5';
+const DEFAULT_LATEST_CODEX_MODEL = 'gpt-5.6';
 let pluginConfig = { ...DEFAULT_CONFIG };
 function configure(config) {
     pluginConfig = { ...pluginConfig, ...config };
@@ -111,7 +111,8 @@ function normalizeModel(model) {
     const preferLatestRaw = process.env.OPENCODE_MULTI_AUTH_PREFER_CODEX_LATEST;
     const preferLatest = preferLatestRaw === '1' || preferLatestRaw === 'true';
     if (preferLatest &&
-        (baseModel === 'gpt-5.4' ||
+        (baseModel === 'gpt-5.5' ||
+            baseModel === 'gpt-5.4' ||
             baseModel === 'gpt-5.3-codex' ||
             baseModel === 'gpt-5.2-codex' ||
             baseModel === 'gpt-5-codex')) {
@@ -127,7 +128,7 @@ function isSparkModel(model) {
     return typeof model === 'string' && model.startsWith('gpt-5.3-codex-spark');
 }
 function supportsFastMode(model) {
-    return model === 'gpt-5.5' || model === 'gpt-5.4';
+    return model === 'gpt-5.6' || model === 'gpt-5.5' || model === 'gpt-5.4';
 }
 function ensureContentType(headers) {
     const responseHeaders = new Headers(headers);

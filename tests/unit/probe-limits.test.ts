@@ -143,9 +143,14 @@ describe('Phase C: Limits Accuracy - Probe Authority', () => {
       process.env = originalEnv
     })
 
-    it('should prefer gpt-5.5 first in default list', () => {
+    it('should prefer the GPT-5.6 family in the default list', () => {
       const models = getProbeModels()
-      expect(models[0]).toBe('gpt-5.5')
+      expect(models.slice(0, 3)).toEqual([
+        'gpt-5.6-sol',
+        'gpt-5.6-terra',
+        'gpt-5.6-luna'
+      ])
+      expect(models).toContain('gpt-5.5')
       expect(models).toContain('gpt-5.4')
       expect(models).toContain('gpt-5.3-codex')
       expect(models).toContain('gpt-5.2-codex')

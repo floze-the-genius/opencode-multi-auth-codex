@@ -25,6 +25,20 @@ export interface RefreshQueueState {
   results: LimitRefreshResult[]
 }
 
+export interface RefreshQueueDependencies {
+  refreshRateLimitsForAccount: typeof refreshRateLimitsForAccount
+  updateAccount: typeof updateAccount
+  logInfo: typeof logInfo
+  logWarn: typeof logWarn
+}
+
+const DEFAULT_REFRESH_QUEUE_DEPENDENCIES: RefreshQueueDependencies = {
+  refreshRateLimitsForAccount,
+  updateAccount,
+  logInfo,
+  logWarn
+}
+
 let queueState: RefreshQueueState | null = null
 let stopRequested = false
 
@@ -62,7 +76,8 @@ function syncActiveAliases(activeAliases: Set<string>): void {
 async function runWorker(
   targets: AccountCredentials[],
   nextIndexRef: { value: number },
-  activeAliases: Set<string>
+  activeAliases: Set<string>,
+  dependencies: RefreshQueueDependencies
 ): Promise<void> {
   for (;;) {
     if (!queueState || stopRequested) {
@@ -80,7 +95,7 @@ async function runWorker(
     syncActiveAliases(activeAliases)
 
     try {
-      const result = await refreshRateLimitsForAccount(account)
+      const result = await dependencies.refreshRateLimitsForAccount(account)
       if (!queueState) {
         return
       }
@@ -96,13 +111,16 @@ async function runWorker(
   }
 }
 
-async function runQueue(targets: AccountCredentials[]): Promise<void> {
+async function runQueue(
+  targets: AccountCredentials[],
+  dependencies: RefreshQueueDependencies
+): Promise<void> {
   if (!queueState) return
 
   const nextIndexRef = { value: 0 }
   const activeAliases = new Set<string>()
   const workers = Array.from({ length: queueState.concurrency }, () =>
-    runWorker(targets, nextIndexRef, activeAliases)
+    runWorker(targets, nextIndexRef, activeAliases, dependencies)
   )
 
   await Promise.all(workers)
@@ -110,7 +128,7 @@ async function runQueue(targets: AccountCredentials[]): Promise<void> {
   if (queueState && stopRequested && nextIndexRef.value < targets.length) {
     for (let idx = nextIndexRef.value; idx < targets.length; idx += 1) {
       const account = targets[idx]
-      updateAccount(account.alias, { limitStatus: 'stopped', limitError: 'Stopped by user' })
+      dependencies.updateAccount(account.alias, { limitStatus: 'stopped', limitError: 'Stopped by user' })
       queueState.results.push({ alias: account.alias, updated: false, error: 'Stopped' })
       queueState.completed += 1
     }
@@ -122,14 +140,18 @@ async function runQueue(targets: AccountCredentials[]): Promise<void> {
   queueState.stopped = stopRequested
   queueState.stopRequested = stopRequested
   if (stopRequested) {
-    logWarn('Limit refresh queue stopped by user')
+    dependencies.logWarn('Limit refresh queue stopped by user')
   } else {
-    logInfo('Limit refresh queue completed')
+    dependencies.logInfo('Limit refresh queue completed')
   }
   stopRequested = false
 }
 
-export function startRefreshQueue(accounts: AccountCredentials[], alias?: string): RefreshQueueState {
+export function startRefreshQueue(
+  accounts: AccountCredentials[],
+  alias?: string,
+  dependencies: RefreshQueueDependencies = DEFAULT_REFRESH_QUEUE_DEPENDENCIES
+): RefreshQueueState {
   if (queueState?.running) {
     return queueState
   }
@@ -156,16 +178,16 @@ export function startRefreshQueue(accounts: AccountCredentials[], alias?: string
   if (targets.length === 0) {
     queueState.running = false
     queueState.finishedAt = Date.now()
-    logWarn('Limit refresh queue requested with no targets')
+    dependencies.logWarn('Limit refresh queue requested with no targets')
     return queueState
   }
 
   for (const account of targets) {
-    updateAccount(account.alias, { limitStatus: 'queued', limitError: undefined })
+    dependencies.updateAccount(account.alias, { limitStatus: 'queued', limitError: undefined })
   }
 
-  logInfo(`Limit refresh queue started (${targets.length} accounts, concurrency ${concurrency})`)
-  void runQueue(targets)
+  dependencies.logInfo(`Limit refresh queue started (${targets.length} accounts, concurrency ${concurrency})`)
+  void runQueue(targets, dependencies)
 
   return queueState
 }

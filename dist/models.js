@@ -1,6 +1,7 @@
 const MODELS_ENDPOINT = 'https://api.openai.com/v1/models';
 const REASONING_LEVELS = ['none', 'low', 'medium', 'high', 'xhigh'];
 const MODEL_LIMITS = {
+    'gpt-5.6': { context: 530000, input: 400000, output: 130000 },
     'gpt-5.5': { context: 530000, input: 400000, output: 130000 },
     'gpt-5.4': { context: 1050000, input: 922000, output: 128000 },
     'gpt-5.3': { context: 272000, output: 128000 },
@@ -46,7 +47,7 @@ function buildDefaultProviderModel(baseId) {
     };
 }
 function supportsFastMode(baseId) {
-    return baseId === 'gpt-5.5' || baseId === 'gpt-5.4';
+    return baseId === 'gpt-5.6' || baseId === 'gpt-5.5' || baseId === 'gpt-5.4';
 }
 function buildFastProviderModel(baseId) {
     const limits = getModelLimits(baseId);
@@ -108,6 +109,7 @@ export function generateModelVariants(baseModels) {
 }
 export function getDefaultModels() {
     const defaults = [
+        'gpt-5.6',
         'gpt-5.5',
         'gpt-5.4',
         'gpt-5.3',

@@ -147,8 +147,18 @@ export interface PluginConfig {
 }
 
 // OpenCode provider model definition
+export interface ProviderModelOptions {
+  reasoningEffort: string
+  reasoningSummary: string
+  textVerbosity: string
+  include: string[]
+  store: boolean
+  serviceTier?: string
+}
+
 export interface ProviderModel {
   name: string
+  reasoning: boolean
   limit: {
     context: number
     input?: number
@@ -158,14 +168,8 @@ export interface ProviderModel {
     input: string[]
     output: string[]
   }
-  options: {
-    reasoningEffort: string
-    reasoningSummary: string
-    textVerbosity: string
-    include: string[]
-    store: boolean
-    service_tier?: string
-  }
+  options: ProviderModelOptions
+  variants: Record<string, ProviderModelOptions>
 }
 
 export const DEFAULT_CONFIG: PluginConfig = {
